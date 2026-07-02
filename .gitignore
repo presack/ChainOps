@@ -13,3 +13,10 @@ venv/
 env/
 .env
 *.egg-info/
+.venv-build-windows/
+.venv-build-linux/
+
+# PyInstaller build output
+build/
+dist/
+/chainops.spec
