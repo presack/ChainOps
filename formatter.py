@@ -4,8 +4,82 @@
 
 from __future__ import annotations
 
+import ctypes
+import os
+import sys
 from datetime import datetime, timezone
 from typing import Any
+
+_ANSI_READY: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# ANSI / color helpers -- ported from StealthOps' formatter.py
+# ---------------------------------------------------------------------------
+
+def _c(enabled: bool, text: str, code: str) -> str:
+    if not enabled:
+        return text
+    return f"\x1b[{code}m{text}\x1b[0m"
+
+
+def _enable_ansi() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import colorama  # type: ignore
+        colorama.just_fix_windows_console()
+        return True
+    except Exception:
+        pass
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+    handles = (-11, -12)
+    kernel32 = ctypes.windll.kernel32
+    ok_any = False
+    for handle_id in handles:
+        handle = kernel32.GetStdHandle(handle_id)
+        if handle in (0, -1):
+            continue
+        mode = ctypes.c_uint()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            continue
+        new_mode = mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        if kernel32.SetConsoleMode(handle, new_mode):
+            ok_any = True
+    return ok_any
+
+
+def interactive_stdio() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def color_enabled(no_color: bool) -> bool:
+    global _ANSI_READY
+    if no_color:
+        return False
+    if os.environ.get("NO_COLOR"):
+        return False
+    if not interactive_stdio():
+        return False
+    if _ANSI_READY is None:
+        _ANSI_READY = _enable_ansi()
+    return bool(_ANSI_READY)
+
+
+def colorize_report(report: str, use_color: bool) -> str:
+    if not use_color:
+        return report
+    out = []
+    for line in report.splitlines():
+        if line.startswith("==="):
+            out.append(_c(True, line, "96"))
+        elif line.startswith("error:") or line.startswith("Error:"):
+            out.append(_c(True, line, "91"))
+        elif "[!]" in line:
+            out.append(_c(True, line, "91"))
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _fmt_ts(value: Any) -> str:

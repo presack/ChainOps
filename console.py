@@ -12,15 +12,17 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from _version import __version__
 from core_ops import run_all_staged
-from formatter import format_cli_report
+from formatter import _c, color_enabled, colorize_report, format_cli_report
 from graph import DEFAULT_MAX_NEIGHBORS_PER_HOP, expand_neighbors
+from runner import run_with_activity
 
 _GRAPH_DISPLAY_LIMIT = 25
 
 HELP_TEXT = """
   Query
-    <target>              run a lookup (BTC or Tron address; ETH parses but isn't queryable yet)
+    <target>              run a lookup (BTC, Tron, or ETH address)
     expand [address]      expand neighbors from address (default: current seed) at the current depth
     depth <n>             set hop depth for subsequent expand commands (default: 1)
 
@@ -30,9 +32,49 @@ HELP_TEXT = """
     status                show seed, depth, and graph size
     reset                 clear the accumulated session graph
     clear                 clear the terminal
+    banner                redraw the startup banner
+    version                show the current version
+    update                check for and install an update (built binaries only)
     help                  show this text
     exit / quit           leave the console
 """
+
+_ART_LINES = [
+    "  ____ _           _        ___            ",
+    " / ___| |__   __ _(_)_ __  / _ \\ _ __  ___ ",
+    "| |   | '_ \\ / _` | | '_ \\| | | | '_ \\/ __|",
+    "| |___| | | | (_| | | | | | |_| | |_) \\__ \\",
+    " \\____|_| |_|\\__,_|_|_| |_|\\___/| .__/|___/",
+    "                                |_|         ",
+]
+
+
+def render_console_banner(use_color: bool) -> str:
+    title = _c(use_color, f"[ ON-CHAIN RECON & GRAPH INTELLIGENCE ]  v{__version__}", "92")
+    rule = _c(use_color, "  _____________________________________________________________", "90")
+    art = "\n".join(_c(use_color, line, "93") for line in _ART_LINES)
+
+    etherscan_configured = bool(_etherscan_key())
+    key_disp = _c(use_color, "Configured" if etherscan_configured else "Missing", "92" if etherscan_configured else "91")
+
+    banner = (
+        f"{art}\n"
+        f"   {title}\n"
+        "\n"
+        f"  > ETHERSCAN_API_KEY ............... [{key_disp}]\n"
+        f"{rule}"
+    )
+    from updater import get_update_notice
+    notice = get_update_notice(use_color)
+    if notice:
+        banner += f"\n{notice}"
+    return banner
+
+
+def _etherscan_key() -> str:
+    import keystore
+
+    return keystore.get_key("ETHERSCAN_API_KEY")
 
 
 class ConsoleSession:
@@ -57,11 +99,11 @@ class ConsoleSession:
         if walk.get("truncated"):
             self.truncated = True
 
-    def handle_query(self, target: str) -> str:
-        result = run_all_staged(target)
+    def handle_query(self, target: str, use_color: bool = False) -> str:
+        result = run_with_activity("Gathering results", lambda: run_all_staged(target))
         if result.get("target"):
             self.seed = result["target"]
-        return format_cli_report(result)
+        return colorize_report(format_cli_report(result), use_color)
 
     def handle_expand(self, address: str | None) -> str:
         target = address or self.seed
@@ -135,8 +177,17 @@ class ConsoleSession:
 
 
 def run_console() -> int:
+    from updater import check_for_update_background, cleanup_old_binary
+
+    cleanup_old_binary()
+    check_for_update_background()
+
     session = ConsoleSession()
-    print("ChainOps console. Type 'help' for commands.")
+    use_color = color_enabled(no_color=False)
+    os.system("cls" if os.name == "nt" else "clear")
+    print(render_console_banner(use_color))
+    print("")
+    print("Type 'help' for commands.")
     print("")
 
     while True:
@@ -185,8 +236,31 @@ def run_console() -> int:
         if cmd == "draw":
             print(session.handle_draw(args[0] if args else None))
             continue
+        if cmd == "banner":
+            print(render_console_banner(use_color))
+            continue
+        if cmd == "version":
+            print(f"ChainOps {__version__}")
+            continue
+        if cmd == "update":
+            from updater import do_update
 
-        print(session.handle_query(raw))
+            try:
+                new_tag = do_update(use_color)
+            except KeyboardInterrupt:
+                print("\ninterrupted")
+                continue
+            if new_tag:
+                try:
+                    ans = input(f"  Restart now to use {new_tag}? [y/N] ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    ans = ""
+                if ans == "y":
+                    import sys as _sys
+                    os.execv(_sys.executable, _sys.argv)
+            continue
+
+        print(session.handle_query(raw, use_color))
 
 
 if __name__ == "__main__":
