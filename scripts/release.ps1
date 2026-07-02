@@ -1,11 +1,7 @@
-# release.ps1 -- build the Windows binary, tag, and publish a GitHub release
+# release.ps1 -- build both binaries, tag, and publish a GitHub release
 # Usage:  .\scripts\release.ps1 v1.0.0 ["Release notes here"]
 #
-# Windows-only for now -- Linux/WSL2 build (build-linux.sh) is a follow-up
-# chunk; once it exists, this script gains the same Linux build/upload/
-# checksum steps StealthOps' release.ps1 has.
-#
-# Requires: gh CLI authenticated
+# Requires: gh CLI authenticated, WSL2 with build-linux.sh dependencies available
 
 param(
     [Parameter(Mandatory)][string]$Version,
@@ -37,7 +33,9 @@ if (git tag -l $Version) {
 }
 
 $WinBin       = Join-Path $ProjectRoot "dist\windows\chainops.exe"
+$LinuxBin     = Join-Path $ProjectRoot "dist\linux\chainops"
 $WinUpload    = Join-Path $ProjectRoot "dist\chainops-windows-x64.exe"
+$LinuxUpload  = Join-Path $ProjectRoot "dist\chainops-linux-x64"
 $ChecksumFile = Join-Path $ProjectRoot "dist\checksums.txt"
 
 # Locate gh CLI (check PATH, then common install locations)
@@ -55,7 +53,8 @@ if (-not $GhExe) {
     Write-Error ("gh CLI not found. Install from https://cli.github.com/ then run:`n" +
         "  gh release create $Version --title 'ChainOps $Version' ``
         --notes 'ChainOps $Version' ``
-        '${WinBin}#chainops-windows-x64.exe'")
+        '${WinBin}#chainops-windows-x64.exe' ``
+        '${LinuxBin}#chainops-linux-x64'")
     exit 1
 }
 
@@ -72,13 +71,22 @@ Write-Host "=== Building Windows EXE ===" -ForegroundColor Cyan
 & "$ScriptDir\build.ps1"
 if (-not (Test-Path $WinBin)) { Write-Error "Windows build failed -- $WinBin not found"; exit 1 }
 
+# -- Build Linux (via WSL) -----------------------------------------------------
+Write-Host ""
+Write-Host "=== Building Linux binary (via WSL) ===" -ForegroundColor Cyan
+wsl bash scripts/build-linux.sh
+if (-not (Test-Path $LinuxBin)) { Write-Error "Linux build failed -- $LinuxBin not found"; exit 1 }
+
 # -- Checksums ------------------------------------------------------------------
 Write-Host ""
 Write-Host "=== Generating checksums ===" -ForegroundColor Cyan
-Copy-Item $WinBin $WinUpload -Force
-$WinHash = (Get-FileHash $WinUpload -Algorithm SHA256).Hash.ToLower()
-"$WinHash  chainops-windows-x64.exe" | Set-Content $ChecksumFile
+Copy-Item $WinBin   $WinUpload   -Force
+Copy-Item $LinuxBin $LinuxUpload -Force
+$WinHash   = (Get-FileHash $WinUpload   -Algorithm SHA256).Hash.ToLower()
+$LinuxHash = (Get-FileHash $LinuxUpload -Algorithm SHA256).Hash.ToLower()
+"$WinHash  chainops-windows-x64.exe`n$LinuxHash  chainops-linux-x64" | Set-Content $ChecksumFile
 Write-Host "  $WinHash  chainops-windows-x64.exe"
+Write-Host "  $LinuxHash  chainops-linux-x64"
 
 # -- Tag and release ------------------------------------------------------------
 Write-Host ""
@@ -87,7 +95,8 @@ Write-Host "=== Creating release $Version ===" -ForegroundColor Cyan
 git tag $Version
 git push origin $Version
 
-$InstallLine = "irm https://github.com/presack/ChainOps/releases/latest/download/install.ps1 | iex"
+$InstallLine      = "irm https://github.com/presack/ChainOps/releases/latest/download/install.ps1 | iex"
+$LinuxInstallLine = "curl -fsSL https://github.com/presack/ChainOps/releases/latest/download/install.sh | bash"
 $ReleaseNotes = if ($Notes) { $Notes } else {
 @"
 ChainOps $Version
@@ -102,19 +111,29 @@ Open PowerShell and run:
 $InstallLine
 ``````
 
+**Install (Linux x86_64)**
+
+``````bash
+$LinuxInstallLine
+``````
+
 **Downloads**
 - ``chainops-windows-x64.exe`` -- Windows x64
+- ``chainops-linux-x64`` -- Linux x64 (glibc)
 "@
 }
 
 $InstallPs1 = Join-Path $ProjectRoot "install.ps1"
+$InstallSh  = Join-Path $ProjectRoot "install.sh"
 
 & $GhExe release create $Version `
     --title "ChainOps $Version" `
     --notes $ReleaseNotes `
     $WinUpload `
+    $LinuxUpload `
     "$ChecksumFile#checksums.txt" `
-    "$InstallPs1#install.ps1"
+    "$InstallPs1#install.ps1" `
+    "$InstallSh#install.sh"
 
 Write-Host ""
 Write-Host "Release $Version published." -ForegroundColor Green

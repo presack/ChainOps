@@ -1,15 +1,10 @@
-# ChainOps installer for Windows
+# ChainOps installer for Windows (+ WSL2)
 # Usage: irm https://github.com/presack/ChainOps/releases/latest/download/install.ps1 | iex
-#
-# Linux/WSL2 support is not wired up yet (ChainOps doesn't have a Linux
-# build/asset yet -- see ROADMAP Phase 3.5), so this only installs the
-# Windows binary. StealthOps' installer additionally symlinks a Linux
-# binary into WSL2; that logic will get ported here once build-linux.sh
-# and a Linux release asset exist.
 
 [CmdletBinding()]
 param(
     [string]$Version = "",   # pin to a specific tag e.g. "v1.0.4"; default = latest
+    [switch]$NoWsl,          # skip WSL2 Linux binary setup
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\ChainOps")
 )
 
@@ -44,6 +39,7 @@ Write-Ok "Release: $Tag"
 
 # Resolve asset URLs
 $WinAsset      = "chainops-windows-x64.exe"
+$LinuxAsset    = "chainops-linux-x64"
 $ChecksumAsset = "checksums.txt"
 
 if (-not $Assets.ContainsKey($WinAsset)) {
@@ -52,6 +48,7 @@ if (-not $Assets.ContainsKey($WinAsset)) {
 }
 
 $WinUrl      = $Assets[$WinAsset].browser_download_url
+$LinuxUrl    = if ($Assets.ContainsKey($LinuxAsset))    { $Assets[$LinuxAsset].browser_download_url }    else { $null }
 $ChecksumUrl = if ($Assets.ContainsKey($ChecksumAsset)) { $Assets[$ChecksumAsset].browser_download_url } else { $null }
 
 # Download and parse checksums
@@ -110,6 +107,16 @@ $WinDest = Join-Path $InstallDir "chainops.exe"
 Install-Asset -Url $WinUrl -AssetName $WinAsset -DestPath $WinDest
 Write-Ok "chainops.exe installed"
 
+# Install Linux binary (used by WSL2)
+$LinuxDest = $null
+if ($LinuxUrl) {
+    $LinuxDest = Join-Path $InstallDir "chainops"
+    Install-Asset -Url $LinuxUrl -AssetName $LinuxAsset -DestPath $LinuxDest
+    Write-Ok "chainops (Linux) installed"
+} else {
+    Write-Warn "Linux binary not found in release $Tag -- skipping"
+}
+
 # Add InstallDir to the user PATH registry key (no admin required)
 Write-Step "Updating PATH..."
 $RegPath     = "HKCU:\Environment"
@@ -140,6 +147,55 @@ try {
     $Type::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, "Environment", 2, 5000, [ref]$result) | Out-Null
 } catch { }
 
+# WSL2: chmod, symlink into ~/.local/bin, ensure ~/.local/bin is in PATH
+$WslConfigured = $false
+if (-not $NoWsl -and $LinuxDest -and (Get-Command wsl -ErrorAction SilentlyContinue)) {
+    Write-Step "Configuring WSL2..."
+    try {
+        # Convert Windows paths to their WSL2 mount equivalents
+        $WslSrc     = (wsl wslpath -u ($LinuxDest -replace '\\', '/')).Trim()
+        $WinKeysDir = Join-Path $env:LOCALAPPDATA "ChainOps"
+        $WslKeysDir = (wsl wslpath -u ($WinKeysDir -replace '\\', '/')).Trim()
+
+        # Both paths are passed as env vars so the single-quoted here-string
+        # (which PowerShell does not interpolate) can reference them in bash.
+        $BashScript = @'
+set -e
+chmod +x "$CHAINOPS_SRC"
+mkdir -p ~/.local/bin
+ln -sf "$CHAINOPS_SRC" ~/.local/bin/chainops
+
+# Add ~/.local/bin to PATH
+grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc 2>/dev/null \
+  || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+if [ -f ~/.zshrc ]; then
+  grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshrc \
+    || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+fi
+
+# Point the Linux binary at the Windows keys store so both binaries share
+# the same keys.env file and API keys only need to be entered once.
+mkdir -p "$CHAINOPS_KEYS_DIR"
+KEYS_LINE="export CHAINOPS_KEYS_DIR=\"$CHAINOPS_KEYS_DIR\""
+grep -qF "CHAINOPS_KEYS_DIR" ~/.bashrc 2>/dev/null \
+  || echo "$KEYS_LINE" >> ~/.bashrc
+if [ -f ~/.zshrc ]; then
+  grep -qF "CHAINOPS_KEYS_DIR" ~/.zshrc \
+    || echo "$KEYS_LINE" >> ~/.zshrc
+fi
+'@
+        wsl env "CHAINOPS_SRC=$WslSrc" "CHAINOPS_KEYS_DIR=$WslKeysDir" bash -c $BashScript
+        Write-Ok "Symlinked in WSL2 ~/.local/bin/chainops"
+        Write-Ok "WSL2 will share API keys with Windows ($WslKeysDir)"
+        $WslConfigured = $true
+    } catch {
+        Write-Warn "WSL2 setup skipped: $_"
+    }
+} elseif (-not $NoWsl -and -not (Get-Command wsl -ErrorAction SilentlyContinue)) {
+    Write-Warn "WSL2 not detected -- Linux binary is installed but not linked."
+    Write-Warn "If you add WSL2 later, re-run this installer to set it up."
+}
+
 # Done
 Write-Host ""
 Write-Host "  ChainOps $Tag installed." -ForegroundColor Green
@@ -148,3 +204,8 @@ Write-Host "  chainops is ready in this terminal. Try:" -ForegroundColor White
 Write-Host "    chainops --console" -ForegroundColor Cyan
 Write-Host "    chainops 1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a" -ForegroundColor Cyan
 Write-Host ""
+if ($WslConfigured) {
+    Write-Host "  WSL2: open a new WSL terminal (or run 'source ~/.bashrc')" -ForegroundColor Gray
+    Write-Host "        to use chainops there." -ForegroundColor Gray
+    Write-Host ""
+}

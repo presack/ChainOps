@@ -23,11 +23,15 @@ Manually tracing a wallet — chasing balance, tx history, and neighbor addresse
 irm https://github.com/presack/ChainOps/releases/latest/download/install.ps1 | iex
 ```
 
-Installs to `%LOCALAPPDATA%\Programs\ChainOps\` and adds it to PATH.
+Installs to `%LOCALAPPDATA%\Programs\ChainOps\`, adds to PATH, and configures the Linux binary in WSL2 automatically. Windows and WSL2 share the same API key store.
 
-> No release has been published yet — until then, use "Build from source" below.
+**Linux** (x86_64):
 
-Linux/macOS install isn't built yet (see Roadmap).
+```bash
+curl -fsSL https://github.com/presack/ChainOps/releases/latest/download/install.sh | bash
+```
+
+Installs to `~/.local/bin/`, SHA256-verified. macOS binaries aren't built yet.
 
 After installing, open a new terminal and run:
 
@@ -129,13 +133,13 @@ pip install -r requirements.txt
 python main.py --console
 ```
 
-Build a standalone Windows binary:
+Build standalone binaries:
 
 ```powershell
-.\scripts\build.ps1     # -> dist\windows\chainops.exe
+.\scripts\build.ps1              # Windows EXE -> dist\windows\chainops.exe
+bash ./scripts/build-linux.sh    # Linux binary -> dist/linux/chainops (run in WSL2)
+.\scripts\release.ps1 v1.2.3     # Stamp version, build both, publish GitHub release
 ```
-
-Linux binary build is not set up yet (Windows-first; see Roadmap).
 
 ---
 
