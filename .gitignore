@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+cache/
+
+# Internal planning/notes, not part of the shipped project
+ROADMAP.md
+CLAUDE.md
+
+# Python environments
+.venv/
+venv/
+env/
+.env
+*.egg-info/
