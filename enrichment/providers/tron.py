@@ -82,3 +82,32 @@ def summary(payload: dict[str, Any]) -> str:
     if "error" in payload:
         return f"tron error={payload['error']}"
     return f"tron balance={payload['balance_trx']:.6f} TRX usdt_transfers={payload['usdt_transfer_count']}"
+
+
+def fetch_usdt_transfer_history(address: str, key: str = "", max_pages: int = 20) -> list[dict[str, Any]]:
+    """Full USDT TRC20 transfer history via fingerprint-cursor pagination
+    (200 per page, newest first). Not part of the run()/summary() contract
+    -- a high-activity address (exchange, hot wallet) can have thousands of
+    transfers, so this is a separate, directly-callable function for
+    core_ops.run_all_staged() to compute accurate first/last-seen and
+    dormancy. Raises on HTTP failure; callers should catch and degrade
+    gracefully rather than treat this as optional.
+    """
+    params: dict[str, Any] = {"limit": 200, "contract_address": USDT_CONTRACT}
+    all_transfers: list[dict[str, Any]] = []
+
+    pages_fetched = 0
+    while pages_fetched < max_pages:
+        response = _get(f"/v1/accounts/{address}/transactions/trc20", key, params=params)
+        response.raise_for_status()
+        body = response.json()
+        page = body.get("data", [])
+        all_transfers.extend(page)
+        pages_fetched += 1
+
+        fingerprint = body.get("meta", {}).get("fingerprint")
+        if not fingerprint or len(page) < params["limit"]:
+            break
+        params = {**params, "fingerprint": fingerprint}
+
+    return all_transfers

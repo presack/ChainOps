@@ -20,7 +20,7 @@ _GRAPH_DISPLAY_LIMIT = 25
 
 HELP_TEXT = """
   Query
-    <target>              run a lookup (BTC address; ETH/Tron parse but aren't queryable until Phase 3)
+    <target>              run a lookup (BTC or Tron address; ETH parses but isn't queryable yet)
     expand [address]      expand neighbors from address (default: current seed) at the current depth
     depth <n>             set hop depth for subsequent expand commands (default: 1)
 

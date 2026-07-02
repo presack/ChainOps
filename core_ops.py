@@ -273,19 +273,25 @@ def run_all_staged(target: str, on_update: Callable[[dict[str, Any]], None] | No
         return out
     emit(out)
 
-    if classified.chain != Chain.BITCOIN or classified.target_type not in BTC_ADDRESS_TYPES:
-        out["error"] = (
-            "run_all_staged currently only supports BTC address targets (Phase 1 MVP); "
-            f"got chain={classified.chain} target_type={classified.target_type}"
-        )
-        emit(out)
-        return out
+    if classified.chain == Chain.BITCOIN and classified.target_type in BTC_ADDRESS_TYPES:
+        return _run_bitcoin_staged(classified.target, out, emit)
 
+    if classified.chain == Chain.TRON and classified.target_type == TargetType.TRON_ADDRESS:
+        return _run_tron_staged(classified.target, out, emit)
+
+    out["error"] = (
+        "run_all_staged currently only supports BTC and Tron address targets; "
+        f"got chain={classified.chain} target_type={classified.target_type}"
+    )
+    emit(out)
+    return out
+
+
+def _run_bitcoin_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     # Deferred import: enrichment.providers._shared imports from core_ops,
     # so importing at module load time would be circular.
     from enrichment.providers import blockstream, ofac_sdn, price, walletexplorer
 
-    address = classified.target
     with ThreadPoolExecutor(max_workers=4) as pool:
         blockstream_future = pool.submit(blockstream.run, address, "")
         price_future = pool.submit(price.run, address, "")
@@ -316,6 +322,46 @@ def run_all_staged(target: str, on_update: Callable[[dict[str, Any]], None] | No
             ]
             first_seen = min(confirmed_times) if confirmed_times else None
             last_seen = max(confirmed_times) if confirmed_times else None
+            out["first_seen"] = first_seen
+            out["last_seen"] = last_seen
+            out["dormancy_days"] = round((time.time() - last_seen) / _SECONDS_PER_DAY, 1) if last_seen else None
+
+    emit(out)
+    return out
+
+
+def _run_tron_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    # Deferred import: enrichment.providers._shared imports from core_ops,
+    # so importing at module load time would be circular.
+    from enrichment.providers import ofac_sdn, price, tron
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        tron_future = pool.submit(tron.run, address, "")
+        price_future = pool.submit(price.run, address, "")
+        ofac_future = pool.submit(ofac_sdn.run, address, "")
+
+        tron_data = tron_future.result()
+        out["tron"] = tron_data
+        emit(out)
+
+        out["price"] = price_future.result()
+        emit(out)
+
+        out["ofac_sdn"] = ofac_future.result()
+        emit(out)
+
+    if "error" not in tron_data:
+        try:
+            transfer_history = tron.fetch_usdt_transfer_history(address)
+        except Exception as exc:
+            out["tx_history_error"] = f"could not fetch full USDT transfer history: {exc}"
+        else:
+            # block_timestamp is milliseconds; run_all_staged works in seconds throughout.
+            timestamps = [
+                t["block_timestamp"] / 1000 for t in transfer_history if t.get("block_timestamp") is not None
+            ]
+            first_seen = min(timestamps) if timestamps else None
+            last_seen = max(timestamps) if timestamps else None
             out["first_seen"] = first_seen
             out["last_seen"] = last_seen
             out["dormancy_days"] = round((time.time() - last_seen) / _SECONDS_PER_DAY, 1) if last_seen else None

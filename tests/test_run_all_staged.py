@@ -117,3 +117,73 @@ def test_run_all_staged_on_update_exception_is_swallowed():
         result = run_all_staged(ADDRESS, on_update=bad_callback)
 
     assert result["target"] == ADDRESS
+
+
+TRON_ADDRESS = "TXFBqBbqJommqZf7BV8NNYzePh97UmJodJ"
+
+
+def _patch_tron_providers(**overrides):
+    defaults = dict(
+        tron_run={
+            "source": "tron",
+            "balance_trx": 5.0,
+            "activated": True,
+            "usdt_transfer_count": 2,
+            "recent_usdt_transfers": [],
+        },
+        price_run={"source": "price", "usd": 0.12},
+        ofac_run={"source": "ofac_sdn", "checked": True, "sanctioned": False},
+        fetch_usdt_transfer_history=[
+            {"block_timestamp": 1_700_000_000_000},
+            {"block_timestamp": 1_700_005_000_000},
+        ],
+    )
+    defaults.update(overrides)
+    return (
+        patch("enrichment.providers.tron.run", return_value=defaults["tron_run"]),
+        patch("enrichment.providers.price.run", return_value=defaults["price_run"]),
+        patch("enrichment.providers.ofac_sdn.run", return_value=defaults["ofac_run"]),
+        patch(
+            "enrichment.providers.tron.fetch_usdt_transfer_history",
+            return_value=defaults["fetch_usdt_transfer_history"],
+        ),
+    )
+
+
+def test_run_all_staged_combines_tron_providers():
+    patches = _patch_tron_providers()
+    with patches[0], patches[1], patches[2], patches[3]:
+        result = run_all_staged(TRON_ADDRESS)
+
+    assert result["target"] == TRON_ADDRESS
+    assert result["chain"] == "tron"
+    assert result["valid"] is True
+    assert result["tron"]["balance_trx"] == 5.0
+    assert result["price"]["usd"] == 0.12
+    assert result["ofac_sdn"]["sanctioned"] is False
+    assert result["first_seen"] == 1_700_000_000
+    assert result["last_seen"] == 1_700_005_000
+    assert result["dormancy_days"] is not None
+
+
+def test_run_all_staged_skips_transfer_history_when_tron_errors():
+    patches = _patch_tron_providers(tron_run={"source": "tron", "error": "boom"})
+    with patches[0], patches[1], patches[2], patches[3] as fetch_mock:
+        result = run_all_staged(TRON_ADDRESS)
+
+    assert "error" in result["tron"]
+    assert "first_seen" not in result
+    fetch_mock.assert_not_called()
+
+
+def test_run_all_staged_degrades_gracefully_on_tron_history_failure():
+    patches = list(_patch_tron_providers())
+    with patches[0], patches[1], patches[2]:
+        with patch(
+            "enrichment.providers.tron.fetch_usdt_transfer_history",
+            side_effect=ConnectionError("down"),
+        ):
+            result = run_all_staged(TRON_ADDRESS)
+
+    assert "tx_history_error" in result
+    assert "first_seen" not in result

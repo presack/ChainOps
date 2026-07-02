@@ -97,3 +97,49 @@ def test_tx_history_error_shown_in_activity_section():
     result["tx_history_error"] = "could not fetch full tx history: timeout"
     report = format_cli_report(result)
     assert "could not fetch full tx history: timeout" in report
+
+
+TRON_RESULT = {
+    "target": "TXFBqBbqJommqZf7BV8NNYzePh97UmJodJ",
+    "chain": "tron",
+    "target_type": "tron_address",
+    "valid": True,
+    "tron": {
+        "balance_trx": 5.0,
+        "activated": True,
+        "usdt_transfer_count": 2,
+    },
+    "price": {"usd": 0.12},
+    "ofac_sdn": {"checked": True, "sanctioned": False},
+    "first_seen": 1700000000,
+    "last_seen": 1700005000,
+    "dormancy_days": 300.5,
+}
+
+
+def test_tron_report_includes_balance_and_activity_not_wallet_clustering():
+    report = format_cli_report(TRON_RESULT)
+    assert "=== BALANCE ===" in report
+    assert "Balance: 5.000000 TRX" in report
+    assert "USDT (TRC20) transfers seen: 2" in report
+    assert "=== ACTIVITY ===" in report
+    assert "First seen: 2023-11-14" in report
+    assert "Dormancy: 300.5 days" in report
+    assert "Balance value: $0.60" in report
+    assert "=== WALLET CLUSTERING ===" not in report
+    assert "=== SANCTIONS ===" in report
+    assert "No match" in report
+
+
+def test_tron_report_flags_unactivated_address():
+    result = dict(TRON_RESULT)
+    result["tron"] = {"balance_trx": 0.0, "activated": False, "usdt_transfer_count": 0}
+    report = format_cli_report(result)
+    assert "(unactivated address)" in report
+
+
+def test_tron_report_shows_balance_error():
+    result = dict(TRON_RESULT)
+    result["tron"] = {"error": "http 503: down"}
+    report = format_cli_report(result)
+    assert "http 503: down" in report
