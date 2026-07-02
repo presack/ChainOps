@@ -245,3 +245,219 @@ def test_run_console_help_and_depth_commands(capsys):
     assert "Query" in out
     assert "depth set to 3" in out
     assert "depth is 3" in out
+
+
+# --- ConsoleSession.handle_bulk_inline / handle_bulk_file ---
+
+
+ADDR_B = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+
+
+def _triage_row(address, **overrides):
+    row = {
+        "address": address,
+        "valid": True,
+        "error": "",
+        "balance_btc": 0.001,
+        "balance_sats": 100000,
+        "tx_count": 5,
+        "first_seen": 1000,
+        "last_seen": 2000,
+        "dormancy_days": 10.0,
+        "cluster_id": "",
+        "sanctions_hit": False,
+        "wallet_id": "",
+        "risk_flags": "",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_handle_bulk_inline_rejects_empty_list():
+    session = ConsoleSession()
+    result = session.handle_bulk_inline([])
+    assert "no addresses given" in result
+
+
+@patch("bulk.write_triage_csv")
+@patch("bulk.triage_addresses")
+def test_handle_bulk_inline_triages_and_saves_csv(mock_triage, mock_write):
+    rows = [_triage_row(SEED), _triage_row(ADDR_B)]
+    mock_triage.return_value = rows
+    mock_write.return_value = "/tmp/chainops-bulk-20260702.csv"
+    session = ConsoleSession()
+
+    result = session.handle_bulk_inline([SEED, ADDR_B])
+
+    mock_triage.assert_called_once_with([SEED, ADDR_B])
+    assert session.last_triage_rows == rows
+    assert "triaged 2 address(es)" in result
+    assert "saved to" in result
+
+
+@patch("bulk.write_triage_csv")
+@patch("bulk.triage_addresses")
+def test_handle_bulk_inline_flags_sanctioned_and_errored_rows(mock_triage, mock_write):
+    mock_triage.return_value = [
+        _triage_row(SEED, sanctions_hit=True, risk_flags="sanctioned"),
+        _triage_row(ADDR_B, error="http 500", valid=False),
+    ]
+    mock_write.return_value = "/tmp/out.csv"
+    session = ConsoleSession()
+
+    result = session.handle_bulk_inline([SEED, ADDR_B])
+
+    assert "1 address(es) matched the OFAC SDN list" in result
+    assert "1 address(es) failed to fetch" in result
+
+
+@patch("console.ConsoleSession.handle_bulk_inline")
+@patch("bulk.read_addresses_csv")
+def test_handle_bulk_file_reads_csv_then_triages(mock_read, mock_inline):
+    mock_read.return_value = [SEED, ADDR_B]
+    mock_inline.return_value = "triaged 2 address(es), saved to /tmp/out.csv"
+    session = ConsoleSession()
+
+    result = session.handle_bulk_file("addresses.csv")
+
+    mock_read.assert_called_once_with("addresses.csv")
+    mock_inline.assert_called_once_with([SEED, ADDR_B])
+    assert "triaged 2 address(es)" in result
+
+
+@patch("bulk.read_addresses_csv")
+def test_handle_bulk_file_reports_empty_csv(mock_read):
+    mock_read.return_value = []
+    session = ConsoleSession()
+
+    result = session.handle_bulk_file("empty.csv")
+
+    assert "no addresses found" in result
+
+
+@patch("bulk.read_addresses_csv")
+def test_handle_bulk_file_reports_read_error(mock_read):
+    mock_read.side_effect = OSError("not found")
+    session = ConsoleSession()
+
+    result = session.handle_bulk_file("missing.csv")
+
+    assert "error: could not read missing.csv" in result
+
+
+# --- ConsoleSession.handle_report / handle_report_cluster ---
+
+
+def test_handle_report_requires_a_query_first():
+    session = ConsoleSession()
+    result = session.handle_report(None)
+    assert "no query result yet" in result
+
+
+@patch("report.generate_address_report")
+def test_handle_report_generates_pdf_from_last_result(mock_generate):
+    mock_generate.return_value = "/tmp/chainops-report.pdf"
+    session = ConsoleSession()
+    session.last_result = {"target": SEED, "valid": True}
+
+    result = session.handle_report(None)
+
+    mock_generate.assert_called_once_with(SEED, session.last_result, None)
+    assert "/tmp/chainops-report.pdf" in result
+
+
+@patch("report.generate_address_report")
+def test_handle_report_surfaces_missing_fpdf(mock_generate):
+    mock_generate.side_effect = RuntimeError("PDF generation requires fpdf2. Install with: pip install fpdf2")
+    session = ConsoleSession()
+    session.last_result = {"target": SEED, "valid": True}
+
+    result = session.handle_report(None)
+
+    assert "error:" in result
+    assert "fpdf2" in result
+
+
+def test_handle_report_cluster_requires_a_bulk_run_first():
+    session = ConsoleSession()
+    result = session.handle_report_cluster("cluster1", None)
+    assert "run 'bulk' first" in result
+
+
+def test_handle_report_cluster_requires_matching_rows():
+    session = ConsoleSession()
+    session.last_triage_rows = [_triage_row(SEED, cluster_id="other")]
+
+    result = session.handle_report_cluster("cluster1", None)
+
+    assert "no rows found" in result
+
+
+@patch("report.generate_cluster_report")
+def test_handle_report_cluster_generates_pdf_from_matching_rows(mock_generate):
+    mock_generate.return_value = "/tmp/chainops-cluster.pdf"
+    session = ConsoleSession()
+    rows = [_triage_row(SEED, cluster_id="cluster1"), _triage_row(ADDR_B, cluster_id="other")]
+    session.last_triage_rows = rows
+
+    result = session.handle_report_cluster("cluster1", None)
+
+    mock_generate.assert_called_once_with("cluster1", [rows[0]], None)
+    assert "1 member(s)" in result
+    assert "/tmp/chainops-cluster.pdf" in result
+
+
+# --- run_console() bulk/report command dispatch ---
+
+
+@patch("console.ConsoleSession.handle_bulk_inline")
+def test_run_console_bulk_inline_command(mock_handle, capsys):
+    mock_handle.return_value = "triaged 2 address(es), saved to /tmp/out.csv"
+    with patch("builtins.input", side_effect=[f"bulk {SEED}, {ADDR_B}", "exit"]):
+        run_console()
+    mock_handle.assert_called_once_with([SEED, ADDR_B])
+    assert "triaged 2 address(es)" in capsys.readouterr().out
+
+
+@patch("console.ConsoleSession.handle_bulk_file")
+def test_run_console_bulk_file_command(mock_handle, tmp_path, capsys):
+    csv_path = tmp_path / "addrs.csv"
+    csv_path.write_text(SEED + "\n")
+    mock_handle.return_value = "triaged 1 address(es), saved to /tmp/out.csv"
+    with patch("builtins.input", side_effect=[f"bulk {csv_path}", "exit"]):
+        run_console()
+    mock_handle.assert_called_once_with(str(csv_path))
+    assert "triaged 1 address(es)" in capsys.readouterr().out
+
+
+@patch("console.ConsoleSession.handle_bulk_inline")
+def test_run_console_bulk_paste_mode(mock_handle, capsys):
+    mock_handle.return_value = "triaged 2 address(es), saved to /tmp/out.csv"
+    with patch("builtins.input", side_effect=["bulk", SEED, ADDR_B, "", "exit"]):
+        run_console()
+    mock_handle.assert_called_once_with([SEED, ADDR_B])
+    assert "triaged 2 address(es)" in capsys.readouterr().out
+
+
+@patch("console.ConsoleSession.handle_report")
+def test_run_console_report_command(mock_handle, capsys):
+    mock_handle.return_value = "saved report to /tmp/report.pdf"
+    with patch("builtins.input", side_effect=["report", "exit"]):
+        run_console()
+    mock_handle.assert_called_once_with(None)
+    assert "saved report to /tmp/report.pdf" in capsys.readouterr().out
+
+
+@patch("console.ConsoleSession.handle_report_cluster")
+def test_run_console_report_cluster_command(mock_handle, capsys):
+    mock_handle.return_value = "saved cluster report (2 member(s)) to /tmp/cluster.pdf"
+    with patch("builtins.input", side_effect=["report cluster cluster1", "exit"]):
+        run_console()
+    mock_handle.assert_called_once_with("cluster1", None)
+    assert "saved cluster report" in capsys.readouterr().out
+
+
+def test_run_console_report_cluster_requires_cluster_id(capsys):
+    with patch("builtins.input", side_effect=["report cluster", "exit"]):
+        run_console()
+    assert "usage: report cluster" in capsys.readouterr().out

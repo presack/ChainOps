@@ -59,6 +59,15 @@ draw [path]            export the session graph as draw.io XML
 status                 show seed, depth, and graph size
 reset                  clear the accumulated session graph
 
+# Bulk triage
+bulk 8.8.8.8, example.com    inline list (comma or space separated; BTC addresses only for now)
+bulk addresses.csv            read from a CSV (bare list, or a header row with an "address" column)
+bulk                          paste mode — type addresses, blank line to submit
+
+# Reports (PDF)
+report [path]                 PDF case report for the last query
+report cluster <id> [path]    PDF cluster report from the last 'bulk' run's triage rows
+
 # Other
 banner                 redraw the startup banner
 version                show the current version
@@ -103,18 +112,9 @@ The differentiator over a plain block-explorer lookup: automated multi-hop pivot
 
 ## Bulk triage & PDF reports
 
-`bulk.py` (CSV of addresses in, triage columns out — balance, first/last seen, cluster id, sanctions hit, dormancy, risk flags) and `report.py` (PDF case reports) are built and tested, but not yet wired into the console/CLI as user-facing commands — call them directly from Python for now:
+`bulk` (CSV of addresses in, triage columns out — balance, first/last seen, cluster id, sanctions hit, dormancy, risk flags) and `report`/`report cluster` (PDF case reports) are console commands — see "Console" above. Bulk triage is BTC-only for now; results save to `~/Downloads/chainops-bulk-<timestamp>.csv` and feed the session's `report cluster` command. `report` (no `cluster`) generates a PDF for whatever address you last queried.
 
-```python
-from bulk import run_bulk_triage
-run_bulk_triage("addresses.csv", "triage.csv")
-
-from report import generate_address_report
-from core_ops import run_all_staged
-generate_address_report("<address>", run_all_staged("<address>"))
-```
-
-Console/CLI wiring for both is on the roadmap.
+CLI (single-shot, no console) wiring for both isn't built yet — use the console for now, or call `bulk.py`/`report.py` directly from Python.
 
 ---
 

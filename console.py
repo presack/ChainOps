@@ -10,6 +10,8 @@ shell around it.
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from _version import __version__
@@ -32,6 +34,17 @@ HELP_TEXT = """
     status                show seed, depth, and graph size
     reset                 clear the accumulated session graph
     clear                 clear the terminal
+
+  Bulk triage
+    bulk 8.8.8.8, example.com    inline list (comma or space separated; BTC addresses only for now)
+    bulk /path/to/file.csv        read from a CSV (bare list, or a header row with an "address" column)
+    bulk                          paste mode -- type addresses, blank line to submit
+
+  Reports (PDF)
+    report [path]                 PDF case report for the last query (default: ~/Downloads/chainops-<target>-<ts>.pdf)
+    report cluster <id> [path]    PDF cluster report from the last 'bulk' run's triage rows
+
+  Other
     banner                redraw the startup banner
     version                show the current version
     update                check for and install an update (built binaries only)
@@ -77,6 +90,13 @@ def _etherscan_key() -> str:
     return keystore.get_key("ETHERSCAN_API_KEY")
 
 
+def _default_bulk_csv_path() -> str:
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    downloads = Path.home() / "Downloads"
+    base_dir = downloads if downloads.is_dir() else Path.home()
+    return str(base_dir / f"chainops-bulk-{ts}.csv")
+
+
 class ConsoleSession:
     def __init__(self) -> None:
         self.seed: str | None = None
@@ -85,6 +105,8 @@ class ConsoleSession:
         self.edges: list[dict[str, Any]] = []
         self.truncated: bool = False
         self._seen_edge_keys: set[tuple[str, str, str]] = set()
+        self.last_result: dict[str, Any] | None = None
+        self.last_triage_rows: list[dict[str, Any]] | None = None
 
     def merge_walk(self, walk: dict[str, Any]) -> None:
         for addr, info in walk.get("nodes", {}).items():
@@ -101,6 +123,7 @@ class ConsoleSession:
 
     def handle_query(self, target: str, use_color: bool = False) -> str:
         result = run_with_activity("Gathering results", lambda: run_all_staged(target))
+        self.last_result = result
         if result.get("target"):
             self.seed = result["target"]
         return colorize_report(format_cli_report(result), use_color)
@@ -175,6 +198,62 @@ class ConsoleSession:
         saved_path = save_drawio_file(self.nodes, self.edges, seed=self.seed, out_path=out_path)
         return f"saved graph ({len(self.nodes)} node(s), {len(self.edges)} edge(s)) to {saved_path}"
 
+    def handle_bulk_inline(self, addresses: list[str]) -> str:
+        if not addresses:
+            return "error: no addresses given"
+        from bulk import triage_addresses, write_triage_csv
+
+        rows = run_with_activity(f"Triaging {len(addresses)} address(es)", lambda: triage_addresses(addresses))
+        self.last_triage_rows = rows
+        out_path = _default_bulk_csv_path()
+        write_triage_csv(rows, out_path)
+
+        sanctioned = sum(1 for r in rows if r.get("sanctions_hit") is True)
+        errored = sum(1 for r in rows if r.get("error"))
+        lines = [f"triaged {len(rows)} address(es), saved to {out_path}"]
+        if sanctioned:
+            lines.append(f"[!] {sanctioned} address(es) matched the OFAC SDN list")
+        if errored:
+            lines.append(f"({errored} address(es) failed to fetch)")
+        return "\n".join(lines)
+
+    def handle_bulk_file(self, path: str) -> str:
+        from bulk import read_addresses_csv
+
+        try:
+            addresses = read_addresses_csv(path)
+        except OSError as exc:
+            return f"error: could not read {path}: {exc}"
+        if not addresses:
+            return f"error: no addresses found in {path}"
+        return self.handle_bulk_inline(addresses)
+
+    def handle_report(self, out_path: str | None) -> str:
+        if not self.last_result:
+            return "error: no query result yet - query a target first"
+        from report import generate_address_report
+
+        target = self.last_result.get("target") or self.seed or "unknown"
+        try:
+            dest = generate_address_report(target, self.last_result, out_path)
+        except RuntimeError as exc:
+            return f"error: {exc}"
+        return f"saved report to {dest}"
+
+    def handle_report_cluster(self, cluster_id: str, out_path: str | None) -> str:
+        if not self.last_triage_rows:
+            return "error: no bulk triage results yet - run 'bulk' first"
+        rows = [row for row in self.last_triage_rows if row.get("cluster_id") == cluster_id]
+        if not rows:
+            return f"error: no rows found with cluster_id '{cluster_id}'"
+        from report import generate_cluster_report
+
+        try:
+            dest = generate_cluster_report(cluster_id, rows, out_path)
+        except RuntimeError as exc:
+            return f"error: {exc}"
+        return f"saved cluster report ({len(rows)} member(s)) to {dest}"
+
 
 def run_console() -> int:
     from updater import check_for_update_background, cleanup_old_binary
@@ -235,6 +314,34 @@ def run_console() -> int:
             continue
         if cmd == "draw":
             print(session.handle_draw(args[0] if args else None))
+            continue
+        if cmd == "bulk":
+            if not args:
+                print("Paste addresses (one or more per line), blank line to submit:")
+                pasted: list[str] = []
+                while True:
+                    try:
+                        line = input()
+                    except (EOFError, KeyboardInterrupt):
+                        break
+                    if not line.strip():
+                        break
+                    pasted.extend(part.strip(",") for part in line.replace(",", " ").split() if part.strip(","))
+                print(session.handle_bulk_inline(pasted))
+            elif len(args) == 1 and os.path.isfile(args[0]):
+                print(session.handle_bulk_file(args[0]))
+            else:
+                addresses = [part.strip(",") for part in raw[len(cmd):].replace(",", " ").split() if part.strip(",")]
+                print(session.handle_bulk_inline(addresses))
+            continue
+        if cmd == "report":
+            if args and args[0].lower() == "cluster":
+                if len(args) < 2:
+                    print("error: usage: report cluster <cluster_id> [path]")
+                else:
+                    print(session.handle_report_cluster(args[1], args[2] if len(args) > 2 else None))
+            else:
+                print(session.handle_report(args[0] if args else None))
             continue
         if cmd == "banner":
             print(render_console_banner(use_color))
