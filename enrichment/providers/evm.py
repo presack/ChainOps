@@ -15,9 +15,9 @@ Unlike Blockstream/TronGrid, Etherscan serves *no* traffic without a key
 "Missing/Invalid API Key"), so `run()` requires `key` and returns an
 error_result immediately if it's empty -- no free/keyless path exists.
 
-NOT YET LIVE-VERIFIED (2026-07-02): building this against Etherscan's
-documented V2 API shape without an API key on hand. Covered by mocked
-tests only; run it against a real ETHERSCAN_API_KEY before relying on it.
+Live-verified 2026-07-02 against a real ETHERSCAN_API_KEY (balance, tx
+list, and token transfers all confirmed against a known active address).
+Wired into core_ops.run_all_staged()/formatter.py the same way tron.py is.
 """
 
 from __future__ import annotations
@@ -147,6 +147,25 @@ def _format_token_transfer(transfer: dict[str, Any]) -> dict[str, Any]:
         "contract": transfer.get("contractAddress"),
         "timestamp": int(transfer["timeStamp"]) if transfer.get("timeStamp") else None,
     }
+
+
+def fetch_first_seen(address: str, key: str) -> int | None:
+    """Earliest on-chain activity timestamp, sort=asc/offset=1.
+
+    A single cheap call rather than a full-history walk: Etherscan already
+    returns the oldest tx first in ascending order, so there's no need to
+    paginate through everything just to find the first timestamp (unlike
+    tron.fetch_usdt_transfer_history, which needs the full list for accurate
+    dormancy on TRC20-only activity).
+    """
+    result, error = _call(
+        "txlist",
+        {"address": address, "startblock": 0, "endblock": 99999999, "page": 1, "offset": 1, "sort": "asc"},
+        key,
+    )
+    if error or not result:
+        return None
+    return int(result[0]["timeStamp"])
 
 
 def summary(payload: dict[str, Any]) -> str:

@@ -55,6 +55,29 @@ def format_cli_report(result: dict[str, Any]) -> str:
             lines.append(f"Dormancy: {dormancy} days" if dormancy is not None else "Dormancy: -")
         else:
             lines.append("- not available")
+    elif chain == "ethereum":
+        evm = result.get("evm", {})
+        lines.append("")
+        lines.append("=== BALANCE ===  [source: Etherscan V2 API]")
+        if "error" in evm:
+            lines.append(f"Error: {evm['error']}")
+        else:
+            native_balance = evm.get("balance_eth", 0)
+            lines.append(f"Balance: {native_balance:.6f} ETH")
+            lines.append(f"Tx count (recent page): {evm.get('tx_count', '-')}")
+            lines.append(f"ERC20 token transfers seen (recent page): {evm.get('token_transfer_count', '-')}")
+
+        lines.append("")
+        lines.append("=== ACTIVITY ===  [source: Etherscan V2 API]")
+        if "tx_history_error" in result:
+            lines.append(f"Error: {result['tx_history_error']}")
+        elif "first_seen" in result:
+            lines.append(f"First seen: {_fmt_ts(result.get('first_seen'))}")
+            lines.append(f"Last seen: {_fmt_ts(result.get('last_seen'))}")
+            dormancy = result.get("dormancy_days")
+            lines.append(f"Dormancy: {dormancy} days" if dormancy is not None else "Dormancy: -")
+        else:
+            lines.append("- not available")
     else:
         blockstream = result.get("blockstream", {})
         lines.append("")
@@ -90,11 +113,12 @@ def format_cli_report(result: dict[str, Any]) -> str:
     else:
         usd = price.get("usd")
         lines.append(f"Current price: ${usd:,}" if usd is not None else "Current price: -")
-        if usd is not None and "error" not in result.get("blockstream" if chain != "tron" else "tron", {}):
+        native_source_key = {"bitcoin": "blockstream", "tron": "tron", "ethereum": "evm"}.get(chain, "blockstream")
+        if usd is not None and "error" not in result.get(native_source_key, {}):
             value_usd = native_balance * usd
             lines.append(f"Balance value: ${value_usd:,.2f}")
 
-    if chain != "tron":
+    if chain == "bitcoin":
         walletexplorer = result.get("walletexplorer", {})
         lines.append("")
         lines.append("=== WALLET CLUSTERING ===  [source: WalletExplorer.com]")

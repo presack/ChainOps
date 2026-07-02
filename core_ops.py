@@ -279,8 +279,11 @@ def run_all_staged(target: str, on_update: Callable[[dict[str, Any]], None] | No
     if classified.chain == Chain.TRON and classified.target_type == TargetType.TRON_ADDRESS:
         return _run_tron_staged(classified.target, out, emit)
 
+    if classified.chain == Chain.ETHEREUM and classified.target_type == TargetType.ETH_ADDRESS:
+        return _run_evm_staged(classified.target, out, emit)
+
     out["error"] = (
-        "run_all_staged currently only supports BTC and Tron address targets; "
+        "run_all_staged currently only supports BTC, Tron, and ETH address targets; "
         f"got chain={classified.chain} target_type={classified.target_type}"
     )
     emit(out)
@@ -325,6 +328,45 @@ def _run_bitcoin_staged(address: str, out: dict[str, Any], emit: Callable[[dict[
             out["first_seen"] = first_seen
             out["last_seen"] = last_seen
             out["dormancy_days"] = round((time.time() - last_seen) / _SECONDS_PER_DAY, 1) if last_seen else None
+
+    emit(out)
+    return out
+
+
+def _run_evm_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    # Deferred import: enrichment.providers._shared imports from core_ops,
+    # so importing at module load time would be circular.
+    import keystore
+    from enrichment.providers import evm, ofac_sdn, price
+
+    key = keystore.get_key("ETHERSCAN_API_KEY")
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        evm_future = pool.submit(evm.run, address, key)
+        price_future = pool.submit(price.run, address, "")
+        ofac_future = pool.submit(ofac_sdn.run, address, "")
+
+        evm_data = evm_future.result()
+        out["evm"] = evm_data
+        emit(out)
+
+        out["price"] = price_future.result()
+        emit(out)
+
+        out["ofac_sdn"] = ofac_future.result()
+        emit(out)
+
+    if "error" not in evm_data:
+        out["last_seen"] = evm_data.get("last_seen")
+        try:
+            first_seen = evm.fetch_first_seen(address, key)
+        except Exception as exc:
+            out["tx_history_error"] = f"could not fetch first-seen timestamp: {exc}"
+        else:
+            out["first_seen"] = first_seen
+            out["dormancy_days"] = (
+                round((time.time() - out["last_seen"]) / _SECONDS_PER_DAY, 1) if out["last_seen"] else None
+            )
 
     emit(out)
     return out
