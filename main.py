@@ -17,6 +17,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--console", action="store_true", help="Start the interactive console (REPL)")
     parser.add_argument("--version", action="store_true", help="Print the version and exit")
     parser.add_argument("--update", action="store_true", help="Check for and install an update (built binaries only)")
+    parser.add_argument("--configure-keys", action="store_true", help="Interactive API key setup wizard")
+    parser.add_argument("--providers", action="store_true", help="Show provider key status (configured/missing)")
     parser.add_argument("--no-color", action="store_true", help="Disable colored output")
     return parser.parse_args()
 
@@ -51,6 +53,18 @@ def main() -> int:
         from updater import do_update
 
         do_update(use_color=use_color)
+        return 0
+
+    if args.configure_keys:
+        from keystore import run_setup_wizard
+
+        run_setup_wizard()
+        return 0
+
+    if args.providers:
+        from console import render_providers_status
+
+        print(render_providers_status(use_color))
         return 0
 
     if args.console:

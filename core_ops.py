@@ -375,10 +375,13 @@ def _run_evm_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str,
 def _run_tron_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     # Deferred import: enrichment.providers._shared imports from core_ops,
     # so importing at module load time would be circular.
+    import keystore
     from enrichment.providers import ofac_sdn, price, tron
 
+    key = keystore.get_key("TRONGRID_API_KEY")
+
     with ThreadPoolExecutor(max_workers=3) as pool:
-        tron_future = pool.submit(tron.run, address, "")
+        tron_future = pool.submit(tron.run, address, key)
         price_future = pool.submit(price.run, address, "")
         ofac_future = pool.submit(ofac_sdn.run, address, "")
 
@@ -394,7 +397,7 @@ def _run_tron_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str
 
     if "error" not in tron_data:
         try:
-            transfer_history = tron.fetch_usdt_transfer_history(address)
+            transfer_history = tron.fetch_usdt_transfer_history(address, key)
         except Exception as exc:
             out["tx_history_error"] = f"could not fetch full USDT transfer history: {exc}"
         else:

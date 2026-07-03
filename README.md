@@ -64,13 +64,19 @@ status                 show seed, depth, and graph size
 reset                  clear the accumulated session graph
 
 # Bulk triage
-bulk 8.8.8.8, example.com    inline list (comma or space separated; BTC addresses only for now)
+bulk 1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a, 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
+                               inline list (comma or space separated; BTC addresses only for now)
 bulk addresses.csv            read from a CSV (bare list, or a header row with an "address" column)
 bulk                          paste mode — type addresses, blank line to submit
 
 # Reports (PDF)
 report [path]                 PDF case report for the last query
 report cluster <id> [path]    PDF cluster report from the last 'bulk' run's triage rows
+
+# Keys & providers
+providers               show which providers need a key and whether one's configured
+set-key                  interactive key setup wizard
+set-key evm <key>        set a key directly
 
 # Other
 banner                 redraw the startup banner
@@ -88,6 +94,8 @@ chainops 1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a
 chainops 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --json
 chainops --version
 chainops --update
+chainops --providers
+chainops --configure-keys
 ```
 
 ChainOps' running demo/test target is `1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a` — publicly reported (Forbes, 2013) as connected to Ross Ulbricht/Dread Pirate Roberts during the Silk Road seizure. It's long-public, non-sensitive, and has enough real transaction history (150+ txs) to exercise the graph-walk and clustering phases.
@@ -99,12 +107,12 @@ ChainOps' running demo/test target is `1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a` — p
 | Chain | Address types | Key required |
 |---|---|---|
 | Bitcoin | P2PKH, P2SH, bech32, taproot | No (Blockstream Esplora, free) |
-| Tron | Base58 `T...` | No (TronGrid, free tier) |
-| Ethereum | `0x...` | Yes (`ETHERSCAN_API_KEY`) |
+| Tron | Base58 `T...` | No (TronGrid, free tier — optional key raises the rate limit) |
+| Ethereum | `0x...` | Yes (Etherscan) |
 
 Every report also includes current/historical USD price (CoinGecko) and an OFAC SDN sanctions-list check, free and keyless on all three chains. Bitcoin additionally gets free wallet-clustering lookups (WalletExplorer.com).
 
-Set the Etherscan key once via an environment variable, or with the keystore (`keys.env`, same pattern as StealthOps — stored at `%LOCALAPPDATA%\ChainOps\keys.env` on Windows or `~/.config/chainops/keys.env` on Linux).
+Run `chainops --configure-keys` (or `set-key` in the console) to enter keys interactively, or `chainops --providers` (`providers` in the console) to see what's configured. Keys are stored in `keys.env` — `%LOCALAPPDATA%\ChainOps\keys.env` on Windows, `~/.config/chainops/keys.env` on Linux (same file WSL2 and Windows both use, same pattern as StealthOps) — or set directly as environment variables (`ETHERSCAN_API_KEY`, `TRONGRID_API_KEY`), which take precedence over the stored file.
 
 ---
 

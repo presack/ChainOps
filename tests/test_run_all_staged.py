@@ -176,6 +176,21 @@ def test_run_all_staged_skips_transfer_history_when_tron_errors():
     fetch_mock.assert_not_called()
 
 
+def test_run_all_staged_passes_trongrid_key_from_keystore():
+    patches = _patch_tron_providers()
+    with (
+        patch("keystore.get_key", return_value="test-trongrid-key"),
+        patches[0] as run_mock,
+        patches[1],
+        patches[2],
+        patches[3] as fetch_mock,
+    ):
+        run_all_staged(TRON_ADDRESS)
+
+    run_mock.assert_called_once_with(TRON_ADDRESS, "test-trongrid-key")
+    fetch_mock.assert_called_once_with(TRON_ADDRESS, "test-trongrid-key")
+
+
 def test_run_all_staged_degrades_gracefully_on_tron_history_failure():
     patches = list(_patch_tron_providers())
     with patches[0], patches[1], patches[2]:

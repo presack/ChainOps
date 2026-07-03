@@ -28,6 +28,11 @@ HELP_TEXT = """
     expand [address]      expand neighbors from address (default: current seed) at the current depth
     depth <n>             set hop depth for subsequent expand commands (default: 1)
 
+    Example targets:
+      1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a              BTC -- Silk Road-linked address (Forbes, 2013; public)
+      TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t              Tron -- USDT (TRC20) contract address
+      0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045      ETH -- vitalik.eth
+
   Session
     graph                 show the accumulated session graph
     draw [path]            export the session graph as draw.io XML (default: ~/Downloads/chainops-map-<timestamp>.drawio)
@@ -36,13 +41,19 @@ HELP_TEXT = """
     clear                 clear the terminal
 
   Bulk triage
-    bulk 8.8.8.8, example.com    inline list (comma or space separated; BTC addresses only for now)
+    bulk 1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a, 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
+                                   inline list (comma or space separated; BTC addresses only for now)
     bulk /path/to/file.csv        read from a CSV (bare list, or a header row with an "address" column)
     bulk                          paste mode -- type addresses, blank line to submit
 
   Reports (PDF)
     report [path]                 PDF case report for the last query (default: ~/Downloads/chainops-<target>-<ts>.pdf)
     report cluster <id> [path]    PDF cluster report from the last 'bulk' run's triage rows
+
+  Keys & providers
+    providers              show which providers need a key and whether one's configured
+    set-key                 interactive key setup wizard
+    set-key evm <key>       set a key directly (evm = Etherscan/ETH, tron = TronGrid, optional)
 
   Other
     banner                redraw the startup banner
@@ -88,6 +99,24 @@ def _etherscan_key() -> str:
     import keystore
 
     return keystore.get_key("ETHERSCAN_API_KEY")
+
+
+def render_providers_status(use_color: bool) -> str:
+    from enrichment.providers._registry import get_all_status
+
+    lines = ["Provider key status:", ""]
+    for status in get_all_status().values():
+        spec = status["spec"]
+        req = "required" if spec.required else "optional"
+        if status["configured"]:
+            state = _c(use_color, f"Configured ({status['masked']})", "92")
+        else:
+            state = _c(use_color, "Required, missing" if spec.required else "Missing (free tier used)", "91" if spec.required else "93")
+        lines.append(f"  {spec.display_name:<24} [{spec.name}]  env={spec.env_var:<20} {req:<8} {state}")
+    lines.append("")
+    lines.append("Free, keyless: Bitcoin (Blockstream), price (CoinGecko), sanctions (OFAC SDN), wallet clustering (WalletExplorer, BTC only)")
+    lines.append("Use 'set-key' to configure keys interactively, or 'set-key <provider> <key>' directly.")
+    return "\n".join(lines)
 
 
 def _default_bulk_csv_path() -> str:
@@ -342,6 +371,36 @@ def run_console() -> int:
                     print(session.handle_report_cluster(args[1], args[2] if len(args) > 2 else None))
             else:
                 print(session.handle_report(args[0] if args else None))
+            continue
+        if cmd == "providers":
+            print(render_providers_status(use_color))
+            continue
+        if cmd == "set-key":
+            import keystore
+            from enrichment.providers._registry import KEY_PROVIDERS, get_key_status
+
+            if not args:
+                keystore.run_setup_wizard()
+            elif args[0] not in KEY_PROVIDERS:
+                print(f"error: unknown provider '{args[0]}' -- choices: {', '.join(KEY_PROVIDERS)}")
+            elif len(args) == 1:
+                spec = KEY_PROVIDERS[args[0]]
+                status = get_key_status(args[0])
+                suffix = f" [{status['masked']}]" if status["configured"] else " [not set]"
+                try:
+                    new_val = input(f"  {spec.display_name}{suffix}: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("")
+                    new_val = ""
+                if new_val:
+                    keystore.set_key(spec.env_var, new_val)
+                    print("  [saved]")
+                else:
+                    print("  no change")
+            else:
+                spec = KEY_PROVIDERS[args[0]]
+                keystore.set_key(spec.env_var, " ".join(args[1:]))
+                print(f"  {spec.display_name} key saved")
             continue
         if cmd == "banner":
             print(render_console_banner(use_color))

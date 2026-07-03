@@ -461,3 +461,75 @@ def test_run_console_report_cluster_requires_cluster_id(capsys):
     with patch("builtins.input", side_effect=["report cluster", "exit"]):
         run_console()
     assert "usage: report cluster" in capsys.readouterr().out
+
+
+# --- render_providers_status / 'providers' and 'set-key' console commands ---
+
+
+from console import render_providers_status  # noqa: E402
+
+
+def test_render_providers_status_shows_configured_and_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHAINOPS_KEYS_DIR", str(tmp_path))
+    monkeypatch.setenv("ETHERSCAN_API_KEY", "abcd1234")
+    monkeypatch.delenv("TRONGRID_API_KEY", raising=False)
+    import importlib
+
+    import keystore
+    from enrichment.providers import _registry
+
+    importlib.reload(keystore)
+    importlib.reload(_registry)
+
+    text = render_providers_status(use_color=False)
+
+    assert "Etherscan" in text
+    assert "Configured" in text
+    assert "TronGrid" in text
+    assert "Missing" in text
+
+
+@patch("console.render_providers_status")
+def test_run_console_providers_command(mock_render, capsys):
+    mock_render.return_value = "fake provider status"
+    with patch("builtins.input", side_effect=["providers", "exit"]):
+        run_console()
+    mock_render.assert_called_once_with(False)
+    assert "fake provider status" in capsys.readouterr().out
+
+
+@patch("keystore.run_setup_wizard")
+def test_run_console_set_key_no_args_runs_wizard(mock_wizard, capsys):
+    with patch("builtins.input", side_effect=["set-key", "exit"]):
+        run_console()
+    mock_wizard.assert_called_once()
+
+
+def test_run_console_set_key_rejects_unknown_provider(capsys):
+    with patch("builtins.input", side_effect=["set-key bogus somekey", "exit"]):
+        run_console()
+    out = capsys.readouterr().out
+    assert "unknown provider 'bogus'" in out
+
+
+@patch("keystore.set_key")
+def test_run_console_set_key_direct_sets_value(mock_set, capsys):
+    with patch("builtins.input", side_effect=["set-key evm mykey123", "exit"]):
+        run_console()
+    mock_set.assert_called_once_with("ETHERSCAN_API_KEY", "mykey123")
+    assert "Etherscan" in capsys.readouterr().out
+
+
+@patch("keystore.set_key")
+def test_run_console_set_key_single_provider_prompts_for_value(mock_set, capsys):
+    with patch("builtins.input", side_effect=["set-key evm", "prompted-key", "exit"]):
+        run_console()
+    mock_set.assert_called_once_with("ETHERSCAN_API_KEY", "prompted-key")
+
+
+@patch("keystore.set_key")
+def test_run_console_set_key_single_provider_blank_input_is_no_change(mock_set, capsys):
+    with patch("builtins.input", side_effect=["set-key evm", "", "exit"]):
+        run_console()
+    mock_set.assert_not_called()
+    assert "no change" in capsys.readouterr().out

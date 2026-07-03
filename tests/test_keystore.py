@@ -1,4 +1,5 @@
 import importlib
+from unittest.mock import patch
 
 import keystore
 
@@ -55,3 +56,55 @@ def test_mask_long_value_keeps_last_four():
 
 def test_mask_empty_value():
     assert keystore.mask("") == ""
+
+
+def _fake_provider(name, required):
+    from enrichment.providers._registry import KeyProvider
+
+    return KeyProvider(name, f"{name.upper()} Provider", f"{name.upper()}_KEY", "some address", required)
+
+
+def test_run_setup_wizard_saves_entered_keys(monkeypatch, tmp_path, capsys):
+    ks = _reload_keystore_at(monkeypatch, tmp_path)
+    monkeypatch.delenv("EVM_KEY", raising=False)
+    monkeypatch.delenv("TRON_KEY", raising=False)
+    fake_providers = {"evm": _fake_provider("evm", True), "tron": _fake_provider("tron", False)}
+    with (
+        patch("enrichment.providers._registry.KEY_PROVIDERS", fake_providers),
+        patch("builtins.input", side_effect=["new-evm-key", "new-tron-key"]),
+    ):
+        ks.run_setup_wizard()
+
+    assert ks.get_key("EVM_KEY") == "new-evm-key"
+    assert ks.get_key("TRON_KEY") == "new-tron-key"
+    assert "2 key(s) saved" in capsys.readouterr().out
+
+
+def test_run_setup_wizard_done_stops_early_without_saving_rest(monkeypatch, tmp_path, capsys):
+    ks = _reload_keystore_at(monkeypatch, tmp_path)
+    monkeypatch.delenv("EVM_KEY", raising=False)
+    monkeypatch.delenv("TRON_KEY", raising=False)
+    fake_providers = {"evm": _fake_provider("evm", True), "tron": _fake_provider("tron", False)}
+    with (
+        patch("enrichment.providers._registry.KEY_PROVIDERS", fake_providers),
+        patch("builtins.input", side_effect=["done"]),
+    ):
+        ks.run_setup_wizard()
+
+    assert ks.get_key("EVM_KEY") == ""
+    assert ks.get_key("TRON_KEY") == ""
+    assert "No changes made" in capsys.readouterr().out
+
+
+def test_run_setup_wizard_blank_input_keeps_existing_value(monkeypatch, tmp_path):
+    ks = _reload_keystore_at(monkeypatch, tmp_path)
+    monkeypatch.delenv("EVM_KEY", raising=False)
+    ks.set_key("EVM_KEY", "already-set")
+    fake_providers = {"evm": _fake_provider("evm", True)}
+    with (
+        patch("enrichment.providers._registry.KEY_PROVIDERS", fake_providers),
+        patch("builtins.input", side_effect=[""]),
+    ):
+        ks.run_setup_wizard()
+
+    assert ks.get_key("EVM_KEY") == "already-set"

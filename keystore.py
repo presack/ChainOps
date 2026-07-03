@@ -112,3 +112,44 @@ def mask(value: str) -> str:
     if len(value) <= 4:
         return "••••"
     return "••••••••" + value[-4:]
+
+
+def run_setup_wizard() -> None:
+    """Walk through all key-bearing providers interactively. Saves each
+    key immediately; Ctrl+C or 'done' stops early but keeps whatever was
+    already saved. Mirrors StealthOps' wizard, scoped to ChainOps' (much
+    shorter) provider list.
+    """
+    # Deferred import: enrichment.providers._registry imports keystore,
+    # so importing at module load time would be circular.
+    from enrichment.providers._registry import KEY_PROVIDERS, get_key_status
+
+    print("")
+    print("  ChainOps API Key Setup")
+    print("  " + "-" * 38)
+    print("  Press Enter to keep an existing value.")
+    print("  Type 'done' to finish early, Ctrl+C to stop and keep saved keys.")
+    print("")
+
+    changes = 0
+    for provider in KEY_PROVIDERS.values():
+        status = get_key_status(provider.name)
+        suffix = f" [{status['masked']}]" if status["configured"] else " [not set]"
+        required_tag = "" if provider.required else " (optional)"
+        prompt = f"  {provider.display_name}{required_tag}{suffix}: "
+        try:
+            new_val = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            break
+        if new_val.lower() == "done":
+            break
+        if new_val == "":
+            continue
+        set_key(provider.env_var, new_val)
+        changes += 1
+        print("  [saved]")
+
+    print("")
+    print(f"  {changes} key(s) saved." if changes else "  No changes made.")
+    print("")
