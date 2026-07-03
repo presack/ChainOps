@@ -102,6 +102,16 @@ ChainOps' running demo/test target is `1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a` — p
 
 ---
 
+## Web UI
+
+```
+chainops --web
+```
+
+Opens at `http://127.0.0.1:5000` — a single query form, results rendered as the same report sections the CLI/console show (balance, activity, price, contract info, sanctions, scam reports, risk summary), styled as dark-mode cards. Personal mode only for now — no login, no multi-user support (StealthOps' `SERVER_MODE`/`TRAINING_MODE` equivalents aren't built yet). `--host`/`--port` override the default `127.0.0.1:5000` binding. No bulk-upload or settings page in the UI yet — use the console's `bulk`/`set-key` commands for those.
+
+---
+
 ## Supported chains
 
 | Chain | Address types | Key required |

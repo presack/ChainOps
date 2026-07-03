@@ -1,4 +1,4 @@
-"""ChainOps entrypoint (CLI single-shot; console mode; web mode lands in a later phase)."""
+"""ChainOps entrypoint (CLI single-shot; console mode; web mode)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--configure-keys", action="store_true", help="Interactive API key setup wizard")
     parser.add_argument("--providers", action="store_true", help="Show provider key status (configured/missing)")
     parser.add_argument("--no-color", action="store_true", help="Disable colored output")
+    parser.add_argument("--web", action="store_true", help="Start the web UI")
+    parser.add_argument("--host", default="127.0.0.1", help="Web UI host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=5000, help="Web UI port (default: 5000)")
     return parser.parse_args()
+
+
+def run_web(host: str, port: int) -> int:
+    import uvicorn
+
+    from web_ui import build_app
+
+    uvicorn.run(build_app(), host=host, port=port)
+    return 0
 
 
 def run_cli(target: str, as_json: bool, use_color: bool = False) -> int:
@@ -71,6 +83,9 @@ def main() -> int:
         from console import run_console
 
         return run_console()
+
+    if args.web:
+        return run_web(args.host, args.port)
 
     if not args.target:
         print("error: target is required unless --console is given")

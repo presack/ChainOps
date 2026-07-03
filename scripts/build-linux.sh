@@ -37,6 +37,9 @@ echo "==> Running PyInstaller"
   --distpath "$PROJECT_ROOT/dist/linux" \
   --workpath "$PROJECT_ROOT/build/linux" \
   --hidden-import _version \
+  --collect-submodules uvicorn \
+  --collect-submodules fastapi \
+  --collect-submodules starlette \
   "$PROJECT_ROOT/main.py"
 
 echo "Build complete: $PROJECT_ROOT/dist/linux/chainops"

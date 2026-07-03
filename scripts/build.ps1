@@ -40,6 +40,9 @@ $pyiArgs = @(
     "--distpath", $DistDir,
     "--workpath", $BuildDir,
     "--hidden-import", "_version",
+    "--collect-submodules", "uvicorn",
+    "--collect-submodules", "fastapi",
+    "--collect-submodules", "starlette",
     (Join-Path $ProjectRoot "main.py")
 )
 
