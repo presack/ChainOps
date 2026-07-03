@@ -56,7 +56,16 @@ $Checksums = @{}
 if ($ChecksumUrl) {
     Write-Step "Fetching checksums..."
     try {
-        $Raw = (Invoke-WebRequest -Uri $ChecksumUrl -Headers @{ "User-Agent" = "ChainOps-Installer" }).Content
+        $RawResponse = Invoke-WebRequest -Uri $ChecksumUrl -Headers @{ "User-Agent" = "ChainOps-Installer" }
+        # GitHub serves checksums.txt as application/octet-stream, so
+        # Invoke-WebRequest returns .Content as a byte[] rather than a
+        # string -- decode explicitly or every "line" ends up being a
+        # single byte and no checksum ever matches.
+        if ($RawResponse.Content -is [byte[]]) {
+            $Raw = [System.Text.Encoding]::UTF8.GetString($RawResponse.Content)
+        } else {
+            $Raw = $RawResponse.Content
+        }
         foreach ($Line in ($Raw -split "`n")) {
             $Line = $Line.Trim()
             if ($Line) {
@@ -157,9 +166,15 @@ if (-not $NoWsl -and $LinuxDest -and (Get-Command wsl -ErrorAction SilentlyConti
         $WinKeysDir = Join-Path $env:LOCALAPPDATA "ChainOps"
         $WslKeysDir = (wsl wslpath -u ($WinKeysDir -replace '\\', '/')).Trim()
 
-        # Both paths are passed as env vars so the single-quoted here-string
-        # (which PowerShell does not interpolate) can reference them in bash.
-        $BashScript = @'
+        # Write the setup script to a temp file and run it by path rather
+        # than passing it inline as a `wsl ... bash -c <string>` argument:
+        # wsl.exe rebuilds the command line when relaying to the Linux side,
+        # and in practice that both drops `wsl env VAR=val` passthrough and
+        # mangles quoting in multi-line -c scripts (verified live -- $VAR
+        # comes back empty inside bash even though the same script runs
+        # correctly from a file).
+        $VarLines = "CHAINOPS_SRC='$WslSrc'`nCHAINOPS_KEYS_DIR='$WslKeysDir'`n"
+        $BashBody = @'
 set -e
 chmod +x "$CHAINOPS_SRC"
 mkdir -p ~/.local/bin
@@ -184,7 +199,12 @@ if [ -f ~/.zshrc ]; then
     || echo "$KEYS_LINE" >> ~/.zshrc
 fi
 '@
-        wsl env "CHAINOPS_SRC=$WslSrc" "CHAINOPS_KEYS_DIR=$WslKeysDir" bash -c $BashScript
+        $TempScript = Join-Path $env:TEMP "chainops-wsl-setup.sh"
+        Set-Content -Path $TempScript -Value ($VarLines + $BashBody) -NoNewline -Encoding utf8
+        $WslScriptPath = (wsl wslpath -u ($TempScript -replace '\\', '/')).Trim()
+        wsl bash $WslScriptPath
+        Remove-Item $TempScript -Force -ErrorAction SilentlyContinue
+
         Write-Ok "Symlinked in WSL2 ~/.local/bin/chainops"
         Write-Ok "WSL2 will share API keys with Windows ($WslKeysDir)"
         $WslConfigured = $true
