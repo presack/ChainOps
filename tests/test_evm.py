@@ -132,6 +132,38 @@ def test_run_stops_after_balance_error_without_querying_txlist(get: Mock):
     get.assert_called_once()
 
 
+@patch("enrichment.providers.evm.requests.get")
+def test_fetch_first_seen_returns_earliest_timestamp(get: Mock):
+    get.return_value = _mock_response(_ok([_tx("a" * 66, timestamp="1443428683")]))
+
+    result = evm.fetch_first_seen(ADDRESS, "my-key")
+
+    assert result == 1443428683
+
+
+@patch("enrichment.providers.evm.requests.get")
+def test_fetch_first_seen_returns_none_for_genuinely_no_history(get: Mock):
+    get.return_value = _mock_response(_empty("No transactions found"))
+
+    result = evm.fetch_first_seen(ADDRESS, "my-key")
+
+    assert result is None
+
+
+@patch("enrichment.providers.evm.requests.get")
+def test_fetch_first_seen_raises_on_real_api_error_instead_of_returning_none(get: Mock):
+    # Etherscan's free-tier rate limit surfaces as status="0" message="NOTOK"
+    # -- confirmed live 2026-07-02. This must NOT be conflated with "no
+    # history" (which also has status="0" but a recognized empty message).
+    get.return_value = _mock_response({"status": "0", "message": "NOTOK", "result": None})
+
+    try:
+        evm.fetch_first_seen(ADDRESS, "my-key")
+        assert False, "expected fetch_first_seen to raise"
+    except RuntimeError as exc:
+        assert "NOTOK" in str(exc)
+
+
 def test_summary_formats_success():
     payload = {"balance_eth": 5.0, "tx_count": 3, "token_transfer_count": 2}
     assert evm.summary(payload) == "evm balance=5.000000 ETH tx_count=3 token_transfers=2"

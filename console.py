@@ -24,14 +24,15 @@ _GRAPH_DISPLAY_LIMIT = 25
 
 HELP_TEXT = """
   Query
-    <target>              run a lookup (BTC, Tron, or ETH address)
+    <target>              run a lookup (BTC, Tron, or ETH address, or an .eth ENS name)
     expand [address]      expand neighbors from address (default: current seed) at the current depth
     depth <n>             set hop depth for subsequent expand commands (default: 1)
 
     Example targets:
       1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a              BTC -- Silk Road-linked address (Forbes, 2013; public)
       TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t              Tron -- USDT (TRC20) contract address
-      0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045      ETH -- vitalik.eth
+      0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045      ETH -- vitalik.eth's address
+      vitalik.eth                                     ENS name (resolves to the address above)
 
   Session
     graph                 show the accumulated session graph

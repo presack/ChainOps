@@ -95,6 +95,8 @@ def format_cli_report(result: dict[str, Any]) -> str:
 
     lines.append("=== TARGET ===  [source: classify_target]")
     lines.append(f"Target: {result.get('target', '-')}")
+    if result.get("resolved_address"):
+        lines.append(f"Resolved address: {result['resolved_address']}")
     lines.append(f"Chain: {result.get('chain', '-')}")
     lines.append(f"Type: {result.get('target_type', '-')}")
     if not result.get("valid"):

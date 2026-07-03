@@ -157,13 +157,24 @@ def fetch_first_seen(address: str, key: str) -> int | None:
     paginate through everything just to find the first timestamp (unlike
     tron.fetch_usdt_transfer_history, which needs the full list for accurate
     dormancy on TRC20-only activity).
+
+    Raises on a real API error (e.g. Etherscan's free-tier rate limit,
+    which surfaces as status="0" message="NOTOK" -- confirmed live
+    2026-07-02, triggered by the burst of concurrent calls run_all_staged
+    already makes) rather than swallowing it into None -- conflating "rate
+    limited" with "genuinely has no tx history" produced a silently wrong
+    "First seen: -" for addresses that plainly have history. Callers
+    should catch and degrade gracefully, matching
+    tron.fetch_usdt_transfer_history's contract.
     """
     result, error = _call(
         "txlist",
         {"address": address, "startblock": 0, "endblock": 99999999, "page": 1, "offset": 1, "sort": "asc"},
         key,
     )
-    if error or not result:
+    if error:
+        raise RuntimeError(f"first-seen lookup failed: {error}")
+    if not result:
         return None
     return int(result[0]["timeStamp"])
 

@@ -282,6 +282,9 @@ def run_all_staged(target: str, on_update: Callable[[dict[str, Any]], None] | No
     if classified.chain == Chain.ETHEREUM and classified.target_type == TargetType.ETH_ADDRESS:
         return _run_evm_staged(classified.target, out, emit)
 
+    if classified.chain == Chain.ETHEREUM and classified.target_type == TargetType.ENS_NAME:
+        return _run_ens_staged(classified.target, out, emit)
+
     out["error"] = (
         "run_all_staged currently only supports BTC, Tron, and ETH address targets; "
         f"got chain={classified.chain} target_type={classified.target_type}"
@@ -331,6 +334,27 @@ def _run_bitcoin_staged(address: str, out: dict[str, Any], emit: Callable[[dict[
 
     emit(out)
     return out
+
+
+def _run_ens_staged(name: str, out: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """Resolve an ENS name to an ETH address, then run the same staged EVM
+    query as a direct address lookup. `out["target"]` stays the ENS name
+    the user typed (for display); the resolved address is stamped onto
+    `out["resolved_address"]` and is what every downstream provider call
+    actually queries.
+    """
+    from enrichment.providers.ens import resolve_ens
+
+    resolution = resolve_ens(name)
+    if resolution["error"]:
+        out["error"] = resolution["error"]
+        emit(out)
+        return out
+
+    resolved_address = resolution["address"]
+    out["resolved_address"] = resolved_address
+    emit(out)
+    return _run_evm_staged(resolved_address, out, emit)
 
 
 def _run_evm_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:

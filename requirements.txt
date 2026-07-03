@@ -1,3 +1,4 @@
 requests
 fpdf2
+pycryptodome
 pytest

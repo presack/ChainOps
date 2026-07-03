@@ -51,8 +51,10 @@ def test_run_all_staged_rejects_invalid_target():
     assert "blockstream" not in result
 
 
-def test_run_all_staged_rejects_non_btc_target():
-    result = run_all_staged("vitalik.eth")
+def test_run_all_staged_rejects_still_unsupported_target():
+    # Block height classifies fine but has no staged handler (unlike BTC
+    # address/Tron address/ETH address/ENS name, which all do).
+    result = run_all_staged("700000")
     assert result["valid"] is True
     assert "error" in result
     assert "blockstream" not in result
@@ -201,4 +203,99 @@ def test_run_all_staged_degrades_gracefully_on_tron_history_failure():
             result = run_all_staged(TRON_ADDRESS)
 
     assert "tx_history_error" in result
+    assert "first_seen" not in result
+
+
+ENS_NAME = "vitalik.eth"
+RESOLVED_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+
+
+def _patch_evm_providers(**overrides):
+    defaults = dict(
+        evm_run={
+            "source": "evm",
+            "balance_eth": 5.0,
+            "tx_count": 3,
+            "token_transfer_count": 1,
+            "last_seen": 1_700_005_000,
+        },
+        price_run={"source": "price", "usd": 1700.0},
+        ofac_run={"source": "ofac_sdn", "checked": True, "sanctioned": False},
+        fetch_first_seen=1_700_000_000,
+    )
+    defaults.update(overrides)
+    return (
+        patch("enrichment.providers.evm.run", return_value=defaults["evm_run"]),
+        patch("enrichment.providers.price.run", return_value=defaults["price_run"]),
+        patch("enrichment.providers.ofac_sdn.run", return_value=defaults["ofac_run"]),
+        patch("enrichment.providers.evm.fetch_first_seen", return_value=defaults["fetch_first_seen"]),
+    )
+
+
+def test_run_all_staged_resolves_ens_name_then_runs_evm_query():
+    patches = _patch_evm_providers()
+    with (
+        patch("keystore.get_key", return_value="test-etherscan-key"),
+        patch("enrichment.providers.ens.resolve_ens", return_value={"address": RESOLVED_ADDRESS, "error": None}),
+        patches[0] as evm_run_mock,
+        patches[1],
+        patches[2],
+        patches[3],
+    ):
+        result = run_all_staged(ENS_NAME)
+
+    assert result["target"] == ENS_NAME
+    assert result["resolved_address"] == RESOLVED_ADDRESS
+    assert result["chain"] == "ethereum"
+    assert result["target_type"] == "ens_name"
+    assert "error" not in result
+    assert result["evm"]["balance_eth"] == 5.0
+    evm_run_mock.assert_called_once_with(RESOLVED_ADDRESS, "test-etherscan-key")
+
+
+def test_run_all_staged_surfaces_ens_resolution_error():
+    with patch(
+        "enrichment.providers.ens.resolve_ens",
+        return_value={"address": None, "error": "'vitalik.eth' has no resolver set (likely unregistered)"},
+    ):
+        result = run_all_staged(ENS_NAME)
+
+    assert result["target"] == ENS_NAME
+    assert "resolved_address" not in result
+    assert result["error"] == "'vitalik.eth' has no resolver set (likely unregistered)"
+    assert "evm" not in result
+
+
+def test_run_all_staged_combines_evm_providers_for_direct_address():
+    patches = _patch_evm_providers()
+    with patch("keystore.get_key", return_value="test-etherscan-key"), patches[0], patches[1], patches[2], patches[3]:
+        result = run_all_staged(RESOLVED_ADDRESS)
+
+    assert result["target"] == RESOLVED_ADDRESS
+    assert "resolved_address" not in result
+    assert result["chain"] == "ethereum"
+    assert result["evm"]["balance_eth"] == 5.0
+    assert result["price"]["usd"] == 1700.0
+    assert result["first_seen"] == 1_700_000_000
+    assert result["last_seen"] == 1_700_005_000
+    assert result["dormancy_days"] is not None
+
+
+def test_run_all_staged_surfaces_evm_rate_limit_as_tx_history_error_not_silent_none():
+    # Regression test: evm.fetch_first_seen used to swallow Etherscan's
+    # rate-limit response ("NOTOK") into a silent None indistinguishable
+    # from "no history" -- confirmed live 2026-07-02. It must now raise
+    # and be caught here, same contract as tron.fetch_usdt_transfer_history.
+    patches = _patch_evm_providers()
+    with (
+        patch("keystore.get_key", return_value="test-etherscan-key"),
+        patches[0],
+        patches[1],
+        patches[2],
+        patch("enrichment.providers.evm.fetch_first_seen", side_effect=RuntimeError("first-seen lookup failed: NOTOK")),
+    ):
+        result = run_all_staged(RESOLVED_ADDRESS)
+
+    assert "tx_history_error" in result
+    assert "NOTOK" in result["tx_history_error"]
     assert "first_seen" not in result
