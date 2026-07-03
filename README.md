@@ -15,6 +15,12 @@ Manually tracing a wallet — chasing balance, tx history, and neighbor addresse
 
 ---
 
+## Documentation
+
+[`docs/ChainOps_Training_Guide.docx`](docs/ChainOps_Training_Guide.docx) is a from-scratch training guide covering both blockchain-investigation fundamentals (for readers without a crypto background) and a full tool walkthrough — clustering, graph pivoting, exchange tracing, sanctions/scam-list screening — built entirely from live queries against real, publicly documented addresses.
+
+---
+
 ## Install
 
 **Windows** (PowerShell — no admin required):
@@ -62,6 +68,7 @@ graph                  show the accumulated session graph (flags [contract]/[!] 
 draw [path]            export the session graph as draw.io XML
 status                 show seed, depth, graph size, and flagged-node risk rollup
 reset                  clear the accumulated session graph
+web [host] [port]      start the web UI in the background (default 127.0.0.1:5000)
 
 # Bulk triage
 bulk 1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a, 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
