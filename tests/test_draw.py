@@ -71,6 +71,27 @@ def test_sanctioned_node_renders_red_regardless_of_depth():
     assert "[!] SANCTIONED" in sanctioned_cell.get("value", "")
 
 
+def test_scam_flagged_node_renders_orange():
+    nodes = {SEED: {"depth": 0}, "addrB": {"depth": 1, "scam_flagged": True}}
+    xml_str = build_drawio_xml(nodes, [], seed=SEED)
+    root = ET.fromstring(xml_str)
+
+    scam_cell = next(c for c in root.findall(".//mxCell[@vertex='1']") if "addrB" in c.get("value", ""))
+
+    assert "fillColor=#ffa500" in scam_cell.get("style", "")
+    assert "[!] SCAM-LISTED" in scam_cell.get("value", "")
+
+
+def test_sanctioned_overrides_scam_flagged_color():
+    nodes = {SEED: {"depth": 0}, "addrB": {"depth": 1, "scam_flagged": True, "sanctioned": True}}
+    xml_str = build_drawio_xml(nodes, [], seed=SEED)
+    root = ET.fromstring(xml_str)
+
+    cell = next(c for c in root.findall(".//mxCell[@vertex='1']") if "addrB" in c.get("value", ""))
+
+    assert "fillColor=#ff0000" in cell.get("style", "")  # sanctions take priority over the scam-list color
+
+
 def test_edge_value_shows_token_amount_and_symbol():
     token_nodes = {SEED: {"depth": 0}, "TNeighbor": {"depth": 1}}
     token_edges = [{"txid": "t1", "from": SEED, "to": "TNeighbor", "value": 12.5, "symbol": "USDT"}]

@@ -162,6 +162,16 @@ def test_handle_graph_flags_sanctioned_and_contract_nodes(mock_expand):
     assert "addrC [!] SANCTIONED" in report
 
 
+@patch("console.expand_neighbors")
+def test_handle_graph_flags_scam_listed_nodes(mock_expand):
+    mock_expand.return_value = _walk({SEED: {"depth": 0}, "addrB": {"depth": 1, "scam_flagged": True}}, [])
+    session = ConsoleSession()
+    session.handle_expand(SEED)
+
+    report = session.handle_graph()
+    assert "addrB [!] SCAM-LISTED" in report
+
+
 def test_handle_status_reports_seed_depth_and_graph_size():
     session = ConsoleSession()
     session.seed = SEED
@@ -170,6 +180,18 @@ def test_handle_status_reports_seed_depth_and_graph_size():
     assert SEED in status
     assert "depth: 2" in status
     assert "0 node(s), 0 edge(s)" in status
+    assert "risk: no flagged nodes in session graph" in status
+
+
+def test_handle_status_reports_flagged_nodes_and_nearest_depth():
+    session = ConsoleSession()
+    session.nodes = {
+        SEED: {"depth": 0},
+        "addrB": {"depth": 1, "sanctioned": True},
+        "addrC": {"depth": 2, "scam_flagged": True},
+    }
+    status = session.handle_status()
+    assert "risk: 2 flagged node(s) in session graph, nearest at depth 1" in status
 
 
 @patch("console.expand_neighbors")
@@ -500,6 +522,14 @@ def test_render_providers_status_shows_configured_and_missing(monkeypatch, tmp_p
     assert "Configured" in text
     assert "TronGrid" in text
     assert "Missing" in text
+
+
+def test_render_providers_status_lists_planned_paid_providers():
+    text = render_providers_status(use_color=False)
+
+    assert "Planned (Phase 4" in text
+    assert "Chainalysis" in text
+    assert "TRM Labs" in text
 
 
 @patch("console.render_providers_status")

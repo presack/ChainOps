@@ -223,6 +223,7 @@ def _patch_evm_providers(**overrides):
         ofac_run={"source": "ofac_sdn", "checked": True, "sanctioned": False},
         fetch_first_seen=1_700_000_000,
         tag_address={"kind": "eoa", "delegate_address": None, "contract_name": None, "error": None},
+        scam_run={"source": "scam_list", "checked": True, "flagged": False},
     )
     defaults.update(overrides)
     return (
@@ -231,6 +232,7 @@ def _patch_evm_providers(**overrides):
         patch("enrichment.providers.ofac_sdn.run", return_value=defaults["ofac_run"]),
         patch("enrichment.providers.evm.fetch_first_seen", return_value=defaults["fetch_first_seen"]),
         patch("enrichment.providers.contract_info.tag_address", return_value=defaults["tag_address"]),
+        patch("enrichment.providers.scam_list.run", return_value=defaults["scam_run"]),
     )
 
 
@@ -244,6 +246,7 @@ def test_run_all_staged_resolves_ens_name_then_runs_evm_query():
         patches[2],
         patches[3],
         patches[4],
+        patches[5],
     ):
         result = run_all_staged(ENS_NAME)
 
@@ -278,6 +281,7 @@ def test_run_all_staged_combines_evm_providers_for_direct_address():
         patches[2],
         patches[3],
         patches[4],
+        patches[5],
     ):
         result = run_all_staged(RESOLVED_ADDRESS)
 
@@ -287,6 +291,7 @@ def test_run_all_staged_combines_evm_providers_for_direct_address():
     assert result["evm"]["balance_eth"] == 5.0
     assert result["price"]["usd"] == 1700.0
     assert result["contract_info"]["kind"] == "eoa"
+    assert result["scam_list"]["flagged"] is False
     assert result["first_seen"] == 1_700_000_000
     assert result["last_seen"] == 1_700_005_000
     assert result["dormancy_days"] is not None
@@ -304,6 +309,7 @@ def test_run_all_staged_surfaces_evm_rate_limit_as_tx_history_error_not_silent_n
         patches[1],
         patches[2],
         patches[4],
+        patches[5],
         patch("enrichment.providers.evm.fetch_first_seen", side_effect=RuntimeError("first-seen lookup failed: NOTOK")),
     ):
         result = run_all_staged(RESOLVED_ADDRESS)

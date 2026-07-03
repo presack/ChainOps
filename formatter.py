@@ -90,6 +90,30 @@ def _fmt_ts(value: Any) -> str:
     return datetime.fromtimestamp(value, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _format_risk_summary(result: dict[str, Any]) -> list[str]:
+    """Plain-language flag list, not a black-box score (per ROADMAP Phase
+    4's explicit design goal) -- covers exactly the dimensions ChainOps
+    has real, verified data for today: sanctions exposure (OFAC SDN, all
+    chains) and scam-report exposure (community scam-address list, EVM
+    only -- see scam_list.py's docstring for why Chainabuse/CryptoScamDB
+    couldn't be used). Mixer/bridge hop count and exchange-deposit
+    exposure are NOT included: hop count needs an accumulated graph walk,
+    not a single-target query (see console.py's graph/status commands for
+    that), and no free exchange-address label source was found.
+    """
+    flags: list[str] = []
+    ofac = result.get("ofac_sdn", {})
+    if ofac.get("sanctioned"):
+        flags.append("OFAC sanctioned match")
+    scam = result.get("scam_list", {})
+    if scam.get("flagged"):
+        flags.append("community scam-report match")
+
+    if not flags:
+        return ["No red flags found (sanctions + community scam-report checks only -- see 'help' for scope)."]
+    return [f"[!] {len(flags)} red flag(s): " + "; ".join(flags)]
+
+
 def _format_contract_info(contract_info: dict[str, Any]) -> list[str]:
     if contract_info.get("error"):
         return [f"Error: {contract_info['error']}"]
@@ -239,5 +263,20 @@ def format_cli_report(result: dict[str, Any]) -> str:
         lines.append("[!] SANCTIONED MATCH — this address appears on the OFAC SDN list")
     else:
         lines.append("No match")
+
+    if chain == "ethereum":
+        scam = result.get("scam_list", {})
+        lines.append("")
+        lines.append("=== SCAM REPORTS ===  [source: ScamSniffer community blocklist]")
+        if not scam.get("checked", False):
+            lines.append(f"Error: {scam.get('error', 'unavailable')}")
+        elif scam.get("flagged"):
+            lines.append("[!] FLAGGED — this address appears on a community scam-report list")
+        else:
+            lines.append("No match")
+
+    lines.append("")
+    lines.append("=== RISK SUMMARY ===  [source: aggregated from sections above]")
+    lines.extend(_format_risk_summary(result))
 
     return "\n".join(lines)

@@ -58,9 +58,9 @@ expand [address]      expand neighbors from address (default: current seed) at t
 depth <n>              set hop depth for subsequent expand commands (default: 1)
 
 # Session
-graph                  show the accumulated session graph
+graph                  show the accumulated session graph (flags [contract]/[!] SCAM-LISTED/[!] SANCTIONED)
 draw [path]            export the session graph as draw.io XML
-status                 show seed, depth, and graph size
+status                 show seed, depth, graph size, and flagged-node risk rollup
 reset                  clear the accumulated session graph
 
 # Bulk triage
@@ -110,7 +110,7 @@ ChainOps' running demo/test target is `1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a` — p
 | Tron | Base58 `T...` | No (TronGrid, free tier — optional key raises the rate limit) |
 | Ethereum | `0x...` | Yes (Etherscan) |
 
-Every report also includes current/historical USD price (CoinGecko) and an OFAC SDN sanctions-list check, free and keyless on all three chains. Bitcoin additionally gets free wallet-clustering lookups (WalletExplorer.com).
+Every report also includes current/historical USD price (CoinGecko) and an OFAC SDN sanctions-list check, free and keyless on all three chains. Bitcoin additionally gets free wallet-clustering lookups (WalletExplorer.com). Ethereum additionally gets contract detection and community scam-report checks — see "Risk & attribution" below.
 
 Run `chainops --configure-keys` (or `set-key` in the console) to enter keys interactively, or `chainops --providers` (`providers` in the console) to see what's configured. Keys are stored in `keys.env` — `%LOCALAPPDATA%\ChainOps\keys.env` on Windows, `~/.config/chainops/keys.env` on Linux (same file WSL2 and Windows both use, same pattern as StealthOps) — or set directly as environment variables (`ETHERSCAN_API_KEY`, `TRONGRID_API_KEY`), which take precedence over the stored file.
 
@@ -118,7 +118,19 @@ Run `chainops --configure-keys` (or `set-key` in the console) to enter keys inte
 
 ## Graph pivoting
 
-The differentiator over a plain block-explorer lookup: automated multi-hop pivoting from a seed address, with clustering heuristics (common-input-ownership, change-address detection, peel-chain detection) surfaced alongside the raw graph. `expand`/`depth`/`graph`/`draw` in the console drive this — see "Console" above.
+The differentiator over a plain block-explorer lookup: automated multi-hop pivoting from a seed address, with clustering heuristics (common-input-ownership, change-address detection, peel-chain detection) surfaced alongside the raw graph. `expand`/`depth`/`graph`/`draw` in the console drive this — see "Console" above. Every discovered node also gets a sanctions/scam-report flag (all chains for sanctions, Ethereum-only for scam reports — see below), shown as `[!] SANCTIONED`/`[!] SCAM-LISTED` badges in `graph` and colored red/orange in `draw`'s draw.io export. `status` rolls this up into a one-line summary: how many flagged nodes are in the session graph and how many hops away the nearest one is.
+
+---
+
+## Risk & attribution
+
+Every report ends with a `RISK SUMMARY` — a plain-language flag list, not a black-box score:
+
+- **Sanctions exposure** — OFAC's SDN list, all three chains, free and keyless.
+- **Scam-report exposure** — a community-reported scam-address blocklist, Ethereum only. Uses [ScamSniffer's blocklist](https://github.com/scamsniffer/scam-database) rather than Chainabuse/CryptoScamDB (the two sources originally planned): neither has a usable free API — Chainabuse has no public REST endpoint, and CryptoScamDB's API was down at the time of writing. ScamSniffer's list is free, actively maintained, and address-level (not just domains).
+- **Contract detection** — is the target a smart contract, a plain wallet (EOA), or an EOA using [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) delegation (a wallet that temporarily delegates execution to a smart-account contract — increasingly common since Ethereum's Pectra upgrade, and easy to mis-flag as "a contract" if you don't check for it specifically). Verified contracts get their Etherscan-confirmed name (e.g. `UniswapV2Router02`) where available.
+
+**Not included** (no reliable free data source found): mixer/bridge hop-count beyond what the sanctions/scam-report checks already surface, and exchange-deposit-address exposure. Six paid attribution providers (Chainalysis, TRM Labs, Elliptic, Arkham Intelligence, Breadcrumbs, Crystal Blockchain) are listed in `providers` as planned but have no adapter built — they're enterprise APIs that can't be verified without a paid account, so building one blind wasn't worth the risk of shipping something that silently doesn't work.
 
 ---
 

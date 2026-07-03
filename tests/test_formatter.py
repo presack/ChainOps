@@ -103,6 +103,7 @@ EVM_RESULT = {
     "last_seen": 1783040735,
     "dormancy_days": 0.5,
     "contract_info": {"kind": "eoa", "delegate_address": None, "contract_name": None, "error": None},
+    "scam_list": {"source": "scam_list", "checked": True, "flagged": False},
 }
 
 
@@ -112,6 +113,10 @@ def test_evm_full_report_includes_contract_section():
     assert "Balance: 5.695495 ETH" in report
     assert "=== CONTRACT ===" in report
     assert "Type: EOA" in report
+    assert "=== SCAM REPORTS ===" in report
+    assert "No match" in report.split("=== SCAM REPORTS ===")[1]
+    assert "=== RISK SUMMARY ===" in report
+    assert "No red flags found" in report
 
 
 def test_evm_report_shows_verified_contract_name():
@@ -201,3 +206,53 @@ def test_tron_report_shows_balance_error():
     result["tron"] = {"error": "http 503: down"}
     report = format_cli_report(result)
     assert "http 503: down" in report
+
+
+# --- SCAM REPORTS (EVM only) / RISK SUMMARY ---
+
+
+def test_scam_list_flagged_is_shown():
+    result = dict(EVM_RESULT)
+    result["scam_list"] = {"checked": True, "flagged": True}
+    report = format_cli_report(result)
+    assert "[!] FLAGGED — this address appears on a community scam-report list" in report
+
+
+def test_scam_list_unavailable_shown_as_error():
+    result = dict(EVM_RESULT)
+    result["scam_list"] = {"checked": False, "error": "scam address list unavailable: network unreachable"}
+    report = format_cli_report(result)
+    assert "Error: scam address list unavailable" in report.split("=== SCAM REPORTS ===")[1]
+
+
+def test_scam_reports_section_absent_for_non_evm_chains():
+    report = format_cli_report(FULL_RESULT)  # BTC
+    assert "=== SCAM REPORTS ===" not in report
+
+
+def test_risk_summary_flags_sanctions_match():
+    result = dict(EVM_RESULT)
+    result["ofac_sdn"] = {"checked": True, "sanctioned": True}
+    report = format_cli_report(result)
+    assert "[!] 1 red flag(s): OFAC sanctioned match" in report
+
+
+def test_risk_summary_flags_scam_report_match():
+    result = dict(EVM_RESULT)
+    result["scam_list"] = {"checked": True, "flagged": True}
+    report = format_cli_report(result)
+    assert "[!] 1 red flag(s): community scam-report match" in report
+
+
+def test_risk_summary_flags_both_together():
+    result = dict(EVM_RESULT)
+    result["ofac_sdn"] = {"checked": True, "sanctioned": True}
+    result["scam_list"] = {"checked": True, "flagged": True}
+    report = format_cli_report(result)
+    assert "[!] 2 red flag(s): OFAC sanctioned match; community scam-report match" in report
+
+
+def test_risk_summary_present_for_btc_reports_too():
+    report = format_cli_report(FULL_RESULT)
+    assert "=== RISK SUMMARY ===" in report
+    assert "No red flags found" in report

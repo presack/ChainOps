@@ -35,9 +35,9 @@ HELP_TEXT = """
       vitalik.eth                                     ENS name (resolves to the address above)
 
   Session
-    graph                 show the accumulated session graph
+    graph                 show the accumulated session graph (flags [contract]/[!] SCAM-LISTED/[!] SANCTIONED)
     draw [path]            export the session graph as draw.io XML (default: ~/Downloads/chainops-map-<timestamp>.drawio)
-    status                show seed, depth, and graph size
+    status                show seed, depth, graph size, and flagged-node risk rollup
     reset                 clear the accumulated session graph
     clear                 clear the terminal
 
@@ -103,7 +103,7 @@ def _etherscan_key() -> str:
 
 
 def render_providers_status(use_color: bool) -> str:
-    from enrichment.providers._registry import get_all_status
+    from enrichment.providers._registry import PLANNED_PROVIDERS, get_all_status
 
     lines = ["Provider key status:", ""]
     for status in get_all_status().values():
@@ -117,6 +117,9 @@ def render_providers_status(use_color: bool) -> str:
     lines.append("")
     lines.append("Free, keyless: Bitcoin (Blockstream), price (CoinGecko), sanctions (OFAC SDN), wallet clustering (WalletExplorer, BTC only)")
     lines.append("Use 'set-key' to configure keys interactively, or 'set-key <provider> <key>' directly.")
+    lines.append("")
+    planned = _c(use_color, ", ".join(PLANNED_PROVIDERS), "90")
+    lines.append(f"Planned (Phase 4, no adapter built yet -- paid/enterprise APIs, no key input available): {planned}")
     return "\n".join(lines)
 
 
@@ -204,6 +207,8 @@ class ConsoleSession:
             marker = " (seed)" if addr == self.seed else ""
             if info.get("is_contract"):
                 marker += " [contract]"
+            if info.get("scam_flagged"):
+                marker += " [!] SCAM-LISTED"
             if info.get("sanctioned"):
                 marker += " [!] SANCTIONED"
             lines.append(f"  depth {info['depth']}: {addr}{marker}")
@@ -215,6 +220,12 @@ class ConsoleSession:
         status = f"seed: {self.seed or '-'}\ndepth: {self.depth}\ngraph: {len(self.nodes)} node(s), {len(self.edges)} edge(s)"
         if self.truncated:
             status += " (truncated)"
+        flagged = [info for info in self.nodes.values() if info.get("sanctioned") or info.get("scam_flagged")]
+        if flagged:
+            nearest_depth = min(info["depth"] for info in flagged)
+            status += f"\nrisk: {len(flagged)} flagged node(s) in session graph, nearest at depth {nearest_depth}"
+        else:
+            status += "\nrisk: no flagged nodes in session graph"
         return status
 
     def handle_reset(self) -> str:

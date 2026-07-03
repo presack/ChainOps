@@ -9,13 +9,17 @@ SEED = "1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a"
 
 @pytest.fixture(autouse=True)
 def _mock_node_tagging(monkeypatch):
-    # graph._tag_nodes() calls ofac_sdn.check_addresses for every walk
-    # (all chains) and contract_info.classify_address for EVM walks --
-    # default both to "nothing flagged" so existing tests don't need to
-    # know about tagging; tests that specifically exercise tagging
-    # override these individually.
+    # graph._tag_nodes() calls ofac_sdn.check_addresses and
+    # scam_list.check_addresses for every walk (all chains) and
+    # contract_info.classify_address for EVM walks -- default all to
+    # "nothing flagged" so existing tests don't need to know about
+    # tagging; tests that specifically exercise tagging override these
+    # individually.
     monkeypatch.setattr(
         "enrichment.providers.ofac_sdn.check_addresses", lambda addrs, chain: {a: False for a in addrs}
+    )
+    monkeypatch.setattr(
+        "enrichment.providers.scam_list.check_addresses", lambda addrs, chain: {a: False for a in addrs}
     )
     monkeypatch.setattr(
         "enrichment.providers.contract_info.classify_address",
@@ -269,6 +273,28 @@ def test_evm_nodes_flagged_contract_and_sanctioned(fetch, _key, monkeypatch):
     assert result["nodes"][EVM_SEED]["sanctioned"] is False
     assert result["nodes"][EVM_NEIGHBOR]["is_contract"] is True
     assert result["nodes"][EVM_NEIGHBOR]["sanctioned"] is True
+
+
+@patch("graph._key_for_chain", return_value="my-etherscan-key")
+@patch("graph.evm.fetch_recent_token_transfers")
+def test_evm_nodes_flagged_scam_listed(fetch, _key, monkeypatch):
+    fetch.return_value = [_evm_transfer("0xa", EVM_SEED, EVM_NEIGHBOR)]
+    monkeypatch.setattr(
+        "enrichment.providers.scam_list.check_addresses",
+        lambda addrs, chain: {a: (a == EVM_NEIGHBOR) for a in addrs},
+    )
+
+    result = expand_neighbors(EVM_SEED, depth=1)
+
+    assert result["nodes"][EVM_SEED]["scam_flagged"] is False
+    assert result["nodes"][EVM_NEIGHBOR]["scam_flagged"] is True
+
+
+@patch("graph.blockstream.fetch_recent_txs", side_effect=_fetch_side_effect)
+def test_btc_nodes_have_no_scam_flag_since_source_is_evm_only(fetch):
+    result = expand_neighbors(SEED, depth=1)
+
+    assert result["nodes"][SEED]["scam_flagged"] is False  # present, always False for non-EVM chains
 
 
 @patch("graph._key_for_chain", return_value="")

@@ -361,15 +361,16 @@ def _run_evm_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str,
     # Deferred import: enrichment.providers._shared imports from core_ops,
     # so importing at module load time would be circular.
     import keystore
-    from enrichment.providers import contract_info, evm, ofac_sdn, price
+    from enrichment.providers import contract_info, evm, ofac_sdn, price, scam_list
 
     key = keystore.get_key("ETHERSCAN_API_KEY")
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         evm_future = pool.submit(evm.run, address, key)
         price_future = pool.submit(price.run, address, "")
         ofac_future = pool.submit(ofac_sdn.run, address, "")
         contract_future = pool.submit(contract_info.tag_address, address, key)
+        scam_future = pool.submit(scam_list.run, address, "")
 
         evm_data = evm_future.result()
         out["evm"] = evm_data
@@ -382,6 +383,9 @@ def _run_evm_staged(address: str, out: dict[str, Any], emit: Callable[[dict[str,
         emit(out)
 
         out["contract_info"] = contract_future.result()
+        emit(out)
+
+        out["scam_list"] = scam_future.result()
         emit(out)
 
     if "error" not in evm_data:

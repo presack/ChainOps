@@ -162,7 +162,7 @@ def expand_neighbors(
 
     Returns a dict with:
       seed, requested_depth, valid, error (if invalid/unsupported target)
-      nodes: {address: {"depth": int, "sanctioned": bool, "is_contract": bool (EVM only)}}
+      nodes: {address: {"depth": int, "sanctioned": bool, "scam_flagged": bool (EVM only), "is_contract": bool (EVM only)}}
       edges: BTC: [{"txid", "from", "to", "value_sats", "block_time"}]
              Tron/EVM: [{"txid", "from", "to", "value", "symbol", "block_time"}]
       truncated: True if any hop's neighbor set was capped
@@ -232,22 +232,27 @@ def expand_neighbors(
 
 
 def _tag_nodes(nodes: dict[str, dict[str, Any]], chain: str) -> None:
-    """Post-walk enrichment on every discovered node: a sanctions flag for
-    all chains (free, local -- reuses ofac_sdn's already-cached SDN list,
-    a single batch call for the whole node set) and, for EVM only, a
-    contract/EOA flag (one eth_getCode RPC call per node -- free public
-    endpoints, not Etherscan, so no rate-limit risk even for a 25-node
-    walk; Etherscan's verified-name lookup is deliberately NOT done here,
-    unlike contract_info.tag_address() for a single queried target -- that
-    would be 25 extra Etherscan calls per hop against an already
-    rate-limited free tier). Best-effort: failures leave a node untagged
-    rather than failing the whole walk.
+    """Post-walk enrichment on every discovered node: a sanctions flag and
+    a scam-report flag for all chains (both free, local, single batch
+    calls -- ofac_sdn/scam_list's already-cached lists; scam_list is
+    EVM-only so it's a no-op false for other chains, same as ofac_sdn
+    would be for an unsupported chain) and, for EVM only, a contract/EOA
+    flag (one eth_getCode RPC call per node -- free public endpoints, not
+    Etherscan, so no rate-limit risk even for a 25-node walk; Etherscan's
+    verified-name lookup is deliberately NOT done here, unlike
+    contract_info.tag_address() for a single queried target -- that would
+    be 25 extra Etherscan calls per hop against an already rate-limited
+    free tier). Best-effort: failures leave a node untagged rather than
+    failing the whole walk.
     """
-    from enrichment.providers import ofac_sdn
+    from enrichment.providers import ofac_sdn, scam_list
 
-    sanctioned = ofac_sdn.check_addresses(list(nodes.keys()), chain)
+    addrs = list(nodes.keys())
+    sanctioned = ofac_sdn.check_addresses(addrs, chain)
+    scam_flagged = scam_list.check_addresses(addrs, chain)
     for addr, info in nodes.items():
         info["sanctioned"] = sanctioned.get(addr, False)
+        info["scam_flagged"] = scam_flagged.get(addr, False)
 
     if chain == Chain.ETHEREUM:
         from enrichment.providers import contract_info

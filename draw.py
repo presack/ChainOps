@@ -41,9 +41,11 @@ def _node_color(depth: int) -> tuple[str, str]:
     return _DEPTH_COLORS[min(depth, len(_DEPTH_COLORS) - 1)]
 
 
-def _node_style(depth: int, is_seed: bool, is_contract: bool, sanctioned: bool) -> str:
+def _node_style(depth: int, is_seed: bool, is_contract: bool, sanctioned: bool, scam_flagged: bool) -> str:
     if sanctioned:
-        fill, stroke = "#ff0000", "#990000"  # sanctions override depth coloring -- always red
+        fill, stroke = "#ff0000", "#990000"  # sanctions override everything else -- always solid red
+    elif scam_flagged:
+        fill, stroke = "#ffa500", "#b36b00"  # scam-listed but not sanctioned -- orange, one notch down from red
     else:
         fill, stroke = _node_color(depth)
     shape = "rounded=0" if is_contract else "rounded=1"  # rectangle = contract, rounded = EOA/BTC address
@@ -55,12 +57,14 @@ def _node_style(depth: int, is_seed: bool, is_contract: bool, sanctioned: bool) 
     return style
 
 
-def _node_label(addr: str, is_seed: bool, is_contract: bool, sanctioned: bool) -> str:
+def _node_label(addr: str, is_seed: bool, is_contract: bool, sanctioned: bool, scam_flagged: bool) -> str:
     label = _short_label(addr)
     if is_seed:
         label += " (seed)"
     if is_contract:
         label += " [contract]"
+    if scam_flagged:
+        label += " [!] SCAM-LISTED"
     if sanctioned:
         label += " [!] SANCTIONED"
     return label
@@ -90,10 +94,12 @@ def build_drawio_xml(
     nodes: dict[str, dict[str, Any]], edges: list[dict[str, Any]], seed: str | None = None
 ) -> str:
     """Render a session graph (nodes: {address: {"depth": int, "is_contract":
-    bool, "sanctioned": bool}}, edges: [{"from", "to", "value_sats", ...}])
-    as draw.io mxGraphModel XML. Sanctioned nodes render solid red
-    regardless of depth; contract nodes render as rectangles instead of
-    rounded boxes (both flags are optional -- see graph.py's node tagging).
+    bool, "sanctioned": bool, "scam_flagged": bool}}, edges: [{"from",
+    "to", "value_sats", ...}]) as draw.io mxGraphModel XML. Sanctioned
+    nodes render solid red regardless of depth; scam-listed-but-not-
+    sanctioned nodes render orange; contract nodes render as rectangles
+    instead of rounded boxes (all flags are optional -- see graph.py's
+    node tagging).
     """
     model = ET.Element(
         "mxGraphModel",
@@ -134,8 +140,9 @@ def build_drawio_xml(
             is_seed = addr == seed
             is_contract = bool(info.get("is_contract"))
             sanctioned = bool(info.get("sanctioned"))
-            style = _node_style(depth, is_seed, is_contract, sanctioned)
-            label = _node_label(addr, is_seed, is_contract, sanctioned)
+            scam_flagged = bool(info.get("scam_flagged"))
+            style = _node_style(depth, is_seed, is_contract, sanctioned, scam_flagged)
+            label = _node_label(addr, is_seed, is_contract, sanctioned, scam_flagged)
             cell = ET.SubElement(
                 root_container,
                 "mxCell",
