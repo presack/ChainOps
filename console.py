@@ -202,6 +202,10 @@ class ConsoleSession:
         ordered = sorted(self.nodes.items(), key=lambda kv: kv[1]["depth"])
         for addr, info in ordered[:_GRAPH_DISPLAY_LIMIT]:
             marker = " (seed)" if addr == self.seed else ""
+            if info.get("is_contract"):
+                marker += " [contract]"
+            if info.get("sanctioned"):
+                marker += " [!] SANCTIONED"
             lines.append(f"  depth {info['depth']}: {addr}{marker}")
         if len(ordered) > _GRAPH_DISPLAY_LIMIT:
             lines.append(f"  ... and {len(ordered) - _GRAPH_DISPLAY_LIMIT} more")

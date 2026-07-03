@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from enrichment.providers import ens
+from enrichment.providers import _evm_rpc, ens
 
 VITALIK_ETH = "vitalik.eth"
 RESOLVED_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
@@ -69,7 +69,7 @@ def test_resolve_ens_success():
             return _padded_address(RESOLVER_ADDRESS)
         return _padded_address(RESOLVED_ADDRESS)
 
-    with patch("enrichment.providers.ens.requests.post", side_effect=_mock_post(response_for)):
+    with patch("enrichment.providers._evm_rpc.requests.post", side_effect=_mock_post(response_for)):
         result = ens.resolve_ens(VITALIK_ETH)
 
     assert result["error"] is None
@@ -80,7 +80,7 @@ def test_resolve_ens_unregistered_name_has_no_resolver():
     def response_for(to):
         return ens._ZERO_ADDRESS  # registry returns the zero address: no resolver set
 
-    with patch("enrichment.providers.ens.requests.post", side_effect=_mock_post(response_for)):
+    with patch("enrichment.providers._evm_rpc.requests.post", side_effect=_mock_post(response_for)):
         result = ens.resolve_ens("definitely-not-registered-xyz123.eth")
 
     assert result["address"] is None
@@ -93,7 +93,7 @@ def test_resolve_ens_registered_but_no_address_set():
             return _padded_address(RESOLVER_ADDRESS)
         return ens._ZERO_ADDRESS  # resolver exists but addr() is unset
 
-    with patch("enrichment.providers.ens.requests.post", side_effect=_mock_post(response_for)):
+    with patch("enrichment.providers._evm_rpc.requests.post", side_effect=_mock_post(response_for)):
         result = ens.resolve_ens(VITALIK_ETH)
 
     assert result["address"] is None
@@ -105,7 +105,7 @@ def test_resolve_ens_falls_back_to_next_rpc_endpoint_on_failure():
 
     def _post(url, json=None, timeout=None):
         call_count["n"] += 1
-        if url == ens._RPC_ENDPOINTS[0]:
+        if url == _evm_rpc.RPC_ENDPOINTS[0]:
             raise requests.ConnectionError("endpoint down")
         to = json["params"][0]["to"]
         resp = Mock(spec=requests.Response)
@@ -117,7 +117,7 @@ def test_resolve_ens_falls_back_to_next_rpc_endpoint_on_failure():
             resp.json.return_value = _rpc_response(_padded_address(RESOLVED_ADDRESS))
         return resp
 
-    with patch("enrichment.providers.ens.requests.post", side_effect=_post):
+    with patch("enrichment.providers._evm_rpc.requests.post", side_effect=_post):
         result = ens.resolve_ens(VITALIK_ETH)
 
     assert result["error"] is None
@@ -126,7 +126,7 @@ def test_resolve_ens_falls_back_to_next_rpc_endpoint_on_failure():
 
 
 def test_resolve_ens_all_endpoints_failing_returns_error():
-    with patch("enrichment.providers.ens.requests.post", side_effect=requests.ConnectionError("down")):
+    with patch("enrichment.providers._evm_rpc.requests.post", side_effect=requests.ConnectionError("down")):
         result = ens.resolve_ens(VITALIK_ETH)
 
     assert result["address"] is None

@@ -144,6 +144,29 @@ def run(target: str, key: str) -> dict[str, Any]:
     }
 
 
+def check_addresses(addresses: list[str], chain: str) -> dict[str, bool]:
+    """Batch-check many addresses against the cached SDN list for one
+    chain in a single cache load, instead of calling run() per address
+    (which would re-check chain validity and re-read the cache file each
+    time). Used by graph.py to flag sanctioned nodes discovered during a
+    walk -- free and local once the cache is populated, no extra network
+    calls per node. Addresses not found in the SDN list (including if the
+    cache itself is unavailable) are reported as not sanctioned rather
+    than raising, since a walk shouldn't fail outright over this.
+    """
+    asset_code = _ASSET_CODES.get(chain)
+    if asset_code is None:
+        return {addr: False for addr in addresses}
+
+    try:
+        cache_data = load_addresses()
+    except Exception:
+        return {addr: False for addr in addresses}
+
+    sanctioned_addresses = {a.lower() for a in cache_data.get("addresses", {}).get(asset_code, [])}
+    return {addr: addr.lower() in sanctioned_addresses for addr in addresses}
+
+
 def summary(payload: dict[str, Any]) -> str:
     if not payload.get("checked", False):
         return f"ofac_sdn error={payload.get('error', 'unavailable')}"

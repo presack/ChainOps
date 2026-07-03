@@ -37,6 +37,7 @@ from typing import Any
 
 from core_ops import BTC_ADDRESS_TYPES, Chain, TargetType, classify_target
 from enrichment.providers import blockstream, evm, tron
+from enrichment.providers.ens import to_checksum_address
 
 DEFAULT_MAX_NEIGHBORS_PER_HOP = 25
 
@@ -97,7 +98,18 @@ def _fetch_frontier_edges(chain: str, addr: str, key: str) -> tuple[set[str], li
 
     if chain == Chain.ETHEREUM:
         transfers = evm.fetch_recent_token_transfers(addr, key)
-        return _token_transfer_edges(transfers, timestamp_field="timestamp", timestamp_divisor=1)
+        all_addrs, token_edges = _token_transfer_edges(transfers, timestamp_field="timestamp", timestamp_divisor=1)
+        # Etherscan returns from/to in lowercase, but a seed can be typed/
+        # displayed in EIP-55 mixed case -- without normalizing, the same
+        # on-chain address shows up as two "different" nodes purely from
+        # casing (confirmed live 2026-07-02 walking from the Uniswap V2
+        # Router: it appeared as both its own checksummed seed AND a
+        # separate all-lowercase depth-1 "neighbor" of itself).
+        all_addrs = {to_checksum_address(a) for a in all_addrs}
+        for edge in token_edges:
+            edge["from"] = to_checksum_address(edge["from"])
+            edge["to"] = to_checksum_address(edge["to"])
+        return all_addrs, token_edges
 
     raise ValueError(f"unsupported chain: {chain}")
 
@@ -150,7 +162,7 @@ def expand_neighbors(
 
     Returns a dict with:
       seed, requested_depth, valid, error (if invalid/unsupported target)
-      nodes: {address: {"depth": int}}
+      nodes: {address: {"depth": int, "sanctioned": bool, "is_contract": bool (EVM only)}}
       edges: BTC: [{"txid", "from", "to", "value_sats", "block_time"}]
              Tron/EVM: [{"txid", "from", "to", "value", "symbol", "block_time"}]
       truncated: True if any hop's neighbor set was capped
@@ -173,7 +185,12 @@ def expand_neighbors(
 
     chain = classified.chain
     key = _key_for_chain(chain)
-    seed = classified.target
+    # Normalize casing for EVM seeds too -- classify_target() accepts any
+    # case, but Etherscan's edges (above) are normalized to checksummed
+    # form, so an un-normalized seed could itself get treated as a
+    # "different" node than its own neighbor entry.
+    seed = to_checksum_address(classified.target) if chain == Chain.ETHEREUM else classified.target
+    out["seed"] = seed
     nodes: dict[str, dict[str, int]] = {seed: {"depth": 0}}
     edges: list[dict[str, Any]] = []
     fetch_errors: dict[str, str] = {}
@@ -205,8 +222,39 @@ def expand_neighbors(
         if not frontier:
             break
 
+    _tag_nodes(nodes, chain)
+
     out["nodes"] = nodes
     out["edges"] = edges
     out["truncated"] = truncated
     out["fetch_errors"] = fetch_errors
     return out
+
+
+def _tag_nodes(nodes: dict[str, dict[str, Any]], chain: str) -> None:
+    """Post-walk enrichment on every discovered node: a sanctions flag for
+    all chains (free, local -- reuses ofac_sdn's already-cached SDN list,
+    a single batch call for the whole node set) and, for EVM only, a
+    contract/EOA flag (one eth_getCode RPC call per node -- free public
+    endpoints, not Etherscan, so no rate-limit risk even for a 25-node
+    walk; Etherscan's verified-name lookup is deliberately NOT done here,
+    unlike contract_info.tag_address() for a single queried target -- that
+    would be 25 extra Etherscan calls per hop against an already
+    rate-limited free tier). Best-effort: failures leave a node untagged
+    rather than failing the whole walk.
+    """
+    from enrichment.providers import ofac_sdn
+
+    sanctioned = ofac_sdn.check_addresses(list(nodes.keys()), chain)
+    for addr, info in nodes.items():
+        info["sanctioned"] = sanctioned.get(addr, False)
+
+    if chain == Chain.ETHEREUM:
+        from enrichment.providers import contract_info
+
+        for addr, info in nodes.items():
+            try:
+                classification = contract_info.classify_address(addr)
+            except Exception:
+                classification = {"kind": None}
+            info["is_contract"] = classification.get("kind") == "contract"

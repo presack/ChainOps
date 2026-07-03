@@ -89,6 +89,64 @@ def test_blockstream_error_shown_in_balance_section():
     assert "http 503: down" in report
 
 
+# --- EVM / CONTRACT section ---
+
+EVM_RESULT = {
+    "target": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "chain": "ethereum",
+    "target_type": "eth_address",
+    "valid": True,
+    "evm": {"balance_eth": 5.695495, "tx_count": 50, "token_transfer_count": 50},
+    "price": {"usd": 1700.0},
+    "ofac_sdn": {"checked": True, "sanctioned": False},
+    "first_seen": 1443428683,
+    "last_seen": 1783040735,
+    "dormancy_days": 0.5,
+    "contract_info": {"kind": "eoa", "delegate_address": None, "contract_name": None, "error": None},
+}
+
+
+def test_evm_full_report_includes_contract_section():
+    report = format_cli_report(EVM_RESULT)
+    assert "=== BALANCE ===" in report
+    assert "Balance: 5.695495 ETH" in report
+    assert "=== CONTRACT ===" in report
+    assert "Type: EOA" in report
+
+
+def test_evm_report_shows_verified_contract_name():
+    result = dict(EVM_RESULT)
+    result["contract_info"] = {"kind": "contract", "delegate_address": None, "contract_name": "UniswapV2Router02", "error": None}
+    report = format_cli_report(result)
+    assert "Type: Contract (UniswapV2Router02)" in report
+
+
+def test_evm_report_shows_unverified_contract():
+    result = dict(EVM_RESULT)
+    result["contract_info"] = {"kind": "contract", "delegate_address": None, "contract_name": None, "error": None}
+    report = format_cli_report(result)
+    assert "Type: Contract (unverified)" in report
+
+
+def test_evm_report_shows_eip7702_delegated_eoa():
+    result = dict(EVM_RESULT)
+    result["contract_info"] = {
+        "kind": "delegated_eoa",
+        "delegate_address": "0x5a7fc11397e9a8ad41bf10bf13f22b0a63f96f6d",
+        "contract_name": "AmbireAccount7702",
+        "error": None,
+    }
+    report = format_cli_report(result)
+    assert "EIP-7702 delegated to AmbireAccount7702 @ 0x5a7fc11397e9a8ad41bf10bf13f22b0a63f96f6d" in report
+
+
+def test_evm_report_shows_contract_lookup_error():
+    result = dict(EVM_RESULT)
+    result["contract_info"] = {"kind": None, "delegate_address": None, "contract_name": None, "error": "contract detection failed: timeout"}
+    report = format_cli_report(result)
+    assert "Error: contract detection failed: timeout" in report
+
+
 def test_tx_history_error_shown_in_activity_section():
     result = dict(FULL_RESULT)
     del result["first_seen"]

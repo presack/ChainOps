@@ -90,6 +90,24 @@ def _fmt_ts(value: Any) -> str:
     return datetime.fromtimestamp(value, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _format_contract_info(contract_info: dict[str, Any]) -> list[str]:
+    if contract_info.get("error"):
+        return [f"Error: {contract_info['error']}"]
+
+    kind = contract_info.get("kind")
+    name = contract_info.get("contract_name")
+    if kind == "contract":
+        label = f"Contract ({name})" if name else "Contract (unverified)"
+        return [f"Type: {label}"]
+    if kind == "delegated_eoa":
+        delegate = contract_info.get("delegate_address", "-")
+        label = f"{name} @ {delegate}" if name else delegate
+        return [f"Type: EOA (EIP-7702 delegated to {label})"]
+    if kind == "eoa":
+        return ["Type: EOA"]
+    return ["Type: -"]
+
+
 def format_cli_report(result: dict[str, Any]) -> str:
     lines: list[str] = []
 
@@ -154,6 +172,11 @@ def format_cli_report(result: dict[str, Any]) -> str:
             lines.append(f"Dormancy: {dormancy} days" if dormancy is not None else "Dormancy: -")
         else:
             lines.append("- not available")
+
+        contract_info = result.get("contract_info", {})
+        lines.append("")
+        lines.append("=== CONTRACT ===  [source: eth_getCode + Etherscan getsourcecode]")
+        lines.extend(_format_contract_info(contract_info))
     else:
         blockstream = result.get("blockstream", {})
         lines.append("")

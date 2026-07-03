@@ -1,8 +1,26 @@
 from unittest.mock import patch
 
+import pytest
+
 from graph import expand_neighbors
 
 SEED = "1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a"
+
+
+@pytest.fixture(autouse=True)
+def _mock_node_tagging(monkeypatch):
+    # graph._tag_nodes() calls ofac_sdn.check_addresses for every walk
+    # (all chains) and contract_info.classify_address for EVM walks --
+    # default both to "nothing flagged" so existing tests don't need to
+    # know about tagging; tests that specifically exercise tagging
+    # override these individually.
+    monkeypatch.setattr(
+        "enrichment.providers.ofac_sdn.check_addresses", lambda addrs, chain: {a: False for a in addrs}
+    )
+    monkeypatch.setattr(
+        "enrichment.providers.contract_info.classify_address",
+        lambda addr: {"kind": "eoa", "delegate_address": None, "error": None},
+    )
 
 
 def _tx(txid, block_time, vin_addrs, vout_pairs):
@@ -114,7 +132,8 @@ def test_rejects_depth_below_one():
 @patch("graph.blockstream.fetch_recent_txs", return_value=[])
 def test_stops_early_when_frontier_empties(fetch):
     result = expand_neighbors(SEED, depth=5)
-    assert result["nodes"] == {SEED: {"depth": 0}}
+    assert set(result["nodes"]) == {SEED}
+    assert result["nodes"][SEED]["depth"] == 0
     fetch.assert_called_once_with(SEED)
 
 
@@ -167,7 +186,8 @@ def test_tron_fetch_failure_is_recorded_not_fatal(fetch, _key):
     result = expand_neighbors(TRON_SEED, depth=1)
 
     assert TRON_SEED in result["fetch_errors"]
-    assert result["nodes"] == {TRON_SEED: {"depth": 0}}
+    assert set(result["nodes"]) == {TRON_SEED}
+    assert result["nodes"][TRON_SEED]["depth"] == 0
 
 
 # --- EVM ---
@@ -208,3 +228,68 @@ def test_evm_fetch_failure_is_recorded_not_fatal(fetch, _key):
 
     assert EVM_SEED in result["fetch_errors"]
     assert "NOTOK" in result["fetch_errors"][EVM_SEED]
+
+
+# --- node tagging: sanctions (all chains) + contract detection (EVM only) ---
+
+
+@patch("graph.blockstream.fetch_recent_txs", side_effect=_fetch_side_effect)
+def test_btc_nodes_flagged_sanctioned_from_ofac_check(fetch, monkeypatch):
+    monkeypatch.setattr(
+        "enrichment.providers.ofac_sdn.check_addresses",
+        lambda addrs, chain: {a: (a == "addrB") for a in addrs},
+    )
+
+    result = expand_neighbors(SEED, depth=1)
+
+    assert result["nodes"][SEED]["sanctioned"] is False
+    assert result["nodes"]["addrB"]["sanctioned"] is True
+    assert result["nodes"]["addrC"]["sanctioned"] is False
+    assert "is_contract" not in result["nodes"][SEED]  # BTC has no contract concept
+
+
+@patch("graph._key_for_chain", return_value="my-etherscan-key")
+@patch("graph.evm.fetch_recent_token_transfers")
+def test_evm_nodes_flagged_contract_and_sanctioned(fetch, _key, monkeypatch):
+    fetch.return_value = [_evm_transfer("0xa", EVM_SEED, EVM_NEIGHBOR)]
+    monkeypatch.setattr(
+        "enrichment.providers.ofac_sdn.check_addresses",
+        lambda addrs, chain: {a: (a == EVM_NEIGHBOR) for a in addrs},
+    )
+    monkeypatch.setattr(
+        "enrichment.providers.contract_info.classify_address",
+        lambda addr: {"kind": "contract", "delegate_address": None, "error": None}
+        if addr == EVM_NEIGHBOR
+        else {"kind": "eoa", "delegate_address": None, "error": None},
+    )
+
+    result = expand_neighbors(EVM_SEED, depth=1)
+
+    assert result["nodes"][EVM_SEED]["is_contract"] is False
+    assert result["nodes"][EVM_SEED]["sanctioned"] is False
+    assert result["nodes"][EVM_NEIGHBOR]["is_contract"] is True
+    assert result["nodes"][EVM_NEIGHBOR]["sanctioned"] is True
+
+
+@patch("graph._key_for_chain", return_value="")
+@patch("graph.tron.fetch_recent_usdt_transfers")
+def test_tron_nodes_have_no_contract_flag(fetch, _key):
+    fetch.return_value = [_tron_transfer("t1", TRON_SEED, TRON_NEIGHBOR)]
+
+    result = expand_neighbors(TRON_SEED, depth=1)
+
+    assert "is_contract" not in result["nodes"][TRON_SEED]  # Tron contract detection is out of scope for now
+    assert result["nodes"][TRON_SEED]["sanctioned"] is False
+
+
+@patch("graph._key_for_chain", return_value="my-etherscan-key")
+@patch("graph.evm.fetch_recent_token_transfers")
+def test_evm_node_tagging_failure_degrades_gracefully(fetch, _key, monkeypatch):
+    fetch.return_value = []
+    monkeypatch.setattr(
+        "enrichment.providers.contract_info.classify_address", lambda addr: (_ for _ in ()).throw(RuntimeError("rpc down"))
+    )
+
+    result = expand_neighbors(EVM_SEED, depth=1)
+
+    assert result["nodes"][EVM_SEED]["is_contract"] is False  # unclassifiable defaults to not-a-contract, not a crash

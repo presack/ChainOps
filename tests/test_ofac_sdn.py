@@ -126,3 +126,44 @@ def test_run_degrades_gracefully_when_download_fails(get: Mock, monkeypatch, tmp
     assert result["checked"] is False
     assert "unavailable" in result["error"]
     assert mod.summary(result).startswith("ofac_sdn error=")
+
+
+# --- check_addresses (batch lookup, used by graph.py) ---
+
+
+@patch("enrichment.providers.ofac_sdn.requests.get")
+def test_check_addresses_flags_only_sanctioned_ones(get: Mock, monkeypatch, tmp_path):
+    mod = _reload_at(monkeypatch, tmp_path)
+    get.return_value = Mock(status_code=200, content=_FAKE_SDN_XML)
+    get.return_value.raise_for_status = Mock()
+
+    result = mod.check_addresses(
+        ["1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a"], "bitcoin"
+    )
+
+    assert result == {
+        "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa": True,
+        "1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a": False,
+    }
+
+
+@patch("enrichment.providers.ofac_sdn.requests.get")
+def test_check_addresses_only_loads_cache_once_for_the_whole_batch(get: Mock, monkeypatch, tmp_path):
+    mod = _reload_at(monkeypatch, tmp_path)
+    get.return_value = Mock(status_code=200, content=_FAKE_SDN_XML)
+    get.return_value.raise_for_status = Mock()
+
+    mod.check_addresses(["addr1", "addr2", "addr3"], "bitcoin")
+
+    get.assert_called_once()
+
+
+def test_check_addresses_unsupported_chain_returns_all_false():
+    result = ofac_sdn.check_addresses(["addr1", "addr2"], "dogecoin")
+    assert result == {"addr1": False, "addr2": False}
+
+
+@patch("enrichment.providers.ofac_sdn.load_addresses", side_effect=RuntimeError("network down"))
+def test_check_addresses_degrades_gracefully_when_cache_unavailable(load):
+    result = ofac_sdn.check_addresses(["addr1"], "bitcoin")
+    assert result == {"addr1": False}

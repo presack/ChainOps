@@ -18,19 +18,9 @@ known reference vectors before this went into the resolution pipeline.
 
 from __future__ import annotations
 
-import requests
 from Crypto.Hash import keccak
 
-_RPC_TIMEOUT_SECONDS = 10
-
-# Public, free, keyless RPC endpoints, tried in order. Public RPC uptime
-# varies in practice (llamarpc.com returned a bare 521 during live
-# testing), so a short fallback list is worth the extra lines.
-_RPC_ENDPOINTS = [
-    "https://ethereum.publicnode.com",
-    "https://cloudflare-eth.com",
-    "https://1rpc.io/eth",
-]
+from enrichment.providers._evm_rpc import rpc_call
 
 _ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1E"
 _ZERO_ADDRESS = "0x" + "00" * 20
@@ -73,33 +63,11 @@ _RESOLVER_SELECTOR = _selector("resolver(bytes32)")
 _ADDR_SELECTOR = _selector("addr(bytes32)")
 
 
-def _eth_call(rpc_url: str, to: str, data: bytes) -> bytes:
-    payload = {
-        "jsonrpc": "2.0",
-        "method": "eth_call",
-        "params": [{"to": to, "data": "0x" + data.hex()}, "latest"],
-        "id": 1,
-    }
-    response = requests.post(rpc_url, json=payload, timeout=_RPC_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    body = response.json()
-    if "error" in body:
-        raise RuntimeError(body["error"].get("message", "RPC error"))
-    result = body.get("result")
+def _eth_call(to: str, data: bytes) -> bytes:
+    result = rpc_call("eth_call", [{"to": to, "data": "0x" + data.hex()}, "latest"])
     if not result or result == "0x":
         return b""
     return bytes.fromhex(result[2:])
-
-
-def _eth_call_with_fallback(to: str, data: bytes) -> bytes:
-    last_error: Exception | None = None
-    for rpc_url in _RPC_ENDPOINTS:
-        try:
-            return _eth_call(rpc_url, to, data)
-        except Exception as exc:  # noqa: BLE001 -- fall through to the next RPC endpoint on any failure
-            last_error = exc
-            continue
-    raise RuntimeError(f"all RPC endpoints failed: {last_error}")
 
 
 def resolve_ens(name: str) -> dict:
@@ -111,7 +79,7 @@ def resolve_ens(name: str) -> dict:
     """
     node = namehash(name)
     try:
-        resolver_result = _eth_call_with_fallback(_ENS_REGISTRY, _RESOLVER_SELECTOR + node)
+        resolver_result = _eth_call(_ENS_REGISTRY, _RESOLVER_SELECTOR + node)
     except Exception as exc:
         return {"address": None, "error": f"ENS registry lookup failed: {exc}"}
 
@@ -120,7 +88,7 @@ def resolve_ens(name: str) -> dict:
         return {"address": None, "error": f"'{name}' has no resolver set (likely unregistered)"}
 
     try:
-        addr_result = _eth_call_with_fallback(resolver_address, _ADDR_SELECTOR + node)
+        addr_result = _eth_call(resolver_address, _ADDR_SELECTOR + node)
     except Exception as exc:
         return {"address": None, "error": f"ENS resolver lookup failed: {exc}"}
 

@@ -47,6 +47,30 @@ def test_edge_value_shows_btc_amount():
     assert "0.00200000 BTC" in values
 
 
+def test_contract_node_renders_as_rectangle_not_rounded():
+    nodes = {SEED: {"depth": 0}, "addrB": {"depth": 1, "is_contract": True}}
+    xml_str = build_drawio_xml(nodes, [], seed=SEED)
+    root = ET.fromstring(xml_str)
+
+    seed_cell = next(c for c in root.findall(".//mxCell[@vertex='1']") if "(seed)" in c.get("value", ""))
+    contract_cell = next(c for c in root.findall(".//mxCell[@vertex='1']") if "addrB" in c.get("value", ""))
+
+    assert "rounded=1" in seed_cell.get("style", "")
+    assert "rounded=0" in contract_cell.get("style", "")
+    assert "[contract]" in contract_cell.get("value", "")
+
+
+def test_sanctioned_node_renders_red_regardless_of_depth():
+    nodes = {SEED: {"depth": 0}, "addrB": {"depth": 1, "sanctioned": True}}
+    xml_str = build_drawio_xml(nodes, [], seed=SEED)
+    root = ET.fromstring(xml_str)
+
+    sanctioned_cell = next(c for c in root.findall(".//mxCell[@vertex='1']") if "addrB" in c.get("value", ""))
+
+    assert "fillColor=#ff0000" in sanctioned_cell.get("style", "")
+    assert "[!] SANCTIONED" in sanctioned_cell.get("value", "")
+
+
 def test_edge_value_shows_token_amount_and_symbol():
     token_nodes = {SEED: {"depth": 0}, "TNeighbor": {"depth": 1}}
     token_edges = [{"txid": "t1", "from": SEED, "to": "TNeighbor", "value": 12.5, "symbol": "USDT"}]

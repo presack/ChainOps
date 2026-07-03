@@ -149,6 +149,19 @@ def test_handle_graph_lists_nodes_by_depth(mock_expand):
     assert "(seed)" in report
 
 
+@patch("console.expand_neighbors")
+def test_handle_graph_flags_sanctioned_and_contract_nodes(mock_expand):
+    mock_expand.return_value = _walk(
+        {SEED: {"depth": 0}, "addrB": {"depth": 1, "is_contract": True}, "addrC": {"depth": 1, "sanctioned": True}}, []
+    )
+    session = ConsoleSession()
+    session.handle_expand(SEED)
+
+    report = session.handle_graph()
+    assert "addrB [contract]" in report
+    assert "addrC [!] SANCTIONED" in report
+
+
 def test_handle_status_reports_seed_depth_and_graph_size():
     session = ConsoleSession()
     session.seed = SEED
