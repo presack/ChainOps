@@ -105,13 +105,10 @@ def run(target: str, key: str) -> dict[str, Any]:
     if txlist_error:
         return error_result("evm", txlist_error)
 
-    tokentx_result, tokentx_error = _call(
-        "tokentx",
-        {"address": address, "page": 1, "offset": 50, "sort": "desc"},
-        key,
-    )
-    if tokentx_error:
-        return error_result("evm", tokentx_error)
+    try:
+        token_transfers = fetch_recent_token_transfers(address, key)
+    except RuntimeError as exc:
+        return error_result("evm", str(exc))
 
     last_seen = None
     if txlist_result:
@@ -125,8 +122,8 @@ def run(target: str, key: str) -> dict[str, Any]:
         "balance_eth": balance_wei / _WEI_PER_ETH,
         "tx_count": len(txlist_result),
         "recent_txs": [tx.get("hash") for tx in txlist_result],
-        "token_transfer_count": len(tokentx_result),
-        "recent_token_transfers": [_format_token_transfer(t) for t in tokentx_result],
+        "token_transfer_count": len(token_transfers),
+        "recent_token_transfers": token_transfers,
         "last_seen": last_seen,
     }
 
@@ -147,6 +144,21 @@ def _format_token_transfer(transfer: dict[str, Any]) -> dict[str, Any]:
         "contract": transfer.get("contractAddress"),
         "timestamp": int(transfer["timeStamp"]) if transfer.get("timeStamp") else None,
     }
+
+
+def fetch_recent_token_transfers(address: str, key: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Single most-recent page of ERC20 token transfers, formatted. Used
+    by both run() and the graph-walk engine (graph.py) -- a multi-hop walk
+    fans out to many addresses, so this deliberately does not paginate the
+    way a full-history fetch would, mirroring
+    blockstream.fetch_recent_txs'/tron.fetch_recent_usdt_transfers'
+    "first page only" bound. Raises on a real API error, same contract as
+    fetch_first_seen.
+    """
+    result, error = _call("tokentx", {"address": address, "page": 1, "offset": limit, "sort": "desc"}, key)
+    if error:
+        raise RuntimeError(f"token transfer lookup failed: {error}")
+    return [_format_token_transfer(t) for t in result]
 
 
 def fetch_first_seen(address: str, key: str) -> int | None:

@@ -39,14 +39,10 @@ def run(target: str, key: str) -> dict[str, Any]:
     balance_sun = account.get("balance", 0)
     trc20_balances = {contract: amount for entry in account.get("trc20", []) for contract, amount in entry.items()}
 
-    transfers_resp = _get(
-        f"/v1/accounts/{address}/transactions/trc20",
-        key,
-        params={"limit": 50, "contract_address": USDT_CONTRACT},
-    )
-    if transfers_resp.status_code >= 400:
-        return error_result("tron", short_http_error(transfers_resp))
-    usdt_transfers = [_format_transfer(t) for t in transfers_resp.json().get("data", [])]
+    try:
+        usdt_transfers = fetch_recent_usdt_transfers(address, key)
+    except requests.HTTPError as exc:
+        return error_result("tron", short_http_error(exc.response))
 
     return {
         "source": "tron",
@@ -82,6 +78,23 @@ def summary(payload: dict[str, Any]) -> str:
     if "error" in payload:
         return f"tron error={payload['error']}"
     return f"tron balance={payload['balance_trx']:.6f} TRX usdt_transfers={payload['usdt_transfer_count']}"
+
+
+def fetch_recent_usdt_transfers(address: str, key: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    """Single most-recent page of USDT transfers, formatted. Used by both
+    run() and the graph-walk engine (graph.py) -- a multi-hop walk fans out
+    to many addresses, so this deliberately does NOT paginate the way
+    fetch_usdt_transfer_history() does for first/last-seen accuracy (see
+    that function's docstring); it mirrors blockstream.fetch_recent_txs'
+    "first page only" bound instead. Raises on HTTP failure.
+    """
+    response = _get(
+        f"/v1/accounts/{address}/transactions/trc20",
+        key,
+        params={"limit": limit, "contract_address": USDT_CONTRACT},
+    )
+    response.raise_for_status()
+    return [_format_transfer(t) for t in response.json().get("data", [])]
 
 
 def fetch_usdt_transfer_history(address: str, key: str = "", max_pages: int = 20) -> list[dict[str, Any]]:

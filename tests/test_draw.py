@@ -47,6 +47,16 @@ def test_edge_value_shows_btc_amount():
     assert "0.00200000 BTC" in values
 
 
+def test_edge_value_shows_token_amount_and_symbol():
+    token_nodes = {SEED: {"depth": 0}, "TNeighbor": {"depth": 1}}
+    token_edges = [{"txid": "t1", "from": SEED, "to": "TNeighbor", "value": 12.5, "symbol": "USDT"}]
+
+    xml_str = build_drawio_xml(token_nodes, token_edges, seed=SEED)
+    root = ET.fromstring(xml_str)
+    values = {c.get("value") for c in root.findall(".//mxCell[@edge='1']")}
+    assert "12.500000 USDT" in values
+
+
 def test_edge_referencing_missing_node_is_skipped():
     edges_with_dangling = EDGES + [{"txid": "t2", "from": SEED, "to": "unknown_addr", "value_sats": 1}]
     xml_str = build_drawio_xml(NODES, edges_with_dangling, seed=SEED)

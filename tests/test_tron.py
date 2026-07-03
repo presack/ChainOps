@@ -13,6 +13,8 @@ def _mock_response(json_data, status_code=200):
     resp.status_code = status_code
     resp.json.return_value = json_data
     resp.text = ""
+    if status_code >= 400:
+        resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
     return resp
 
 

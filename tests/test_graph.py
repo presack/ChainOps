@@ -89,7 +89,9 @@ def test_rejects_invalid_target():
     assert "nodes" not in result
 
 
-def test_rejects_non_btc_chain():
+def test_rejects_ens_name():
+    # ENS names aren't resolved here, matching evm.run()'s contract --
+    # resolve to an address first via core_ops.run_all_staged().
     result = expand_neighbors("vitalik.eth")
     assert result["valid"] is True
     assert "error" in result
@@ -114,3 +116,95 @@ def test_stops_early_when_frontier_empties(fetch):
     result = expand_neighbors(SEED, depth=5)
     assert result["nodes"] == {SEED: {"depth": 0}}
     fetch.assert_called_once_with(SEED)
+
+
+# --- Tron ---
+
+TRON_SEED = "TXFBqBbqJommqZf7BV8NNYzePh97UmJodJ"
+TRON_NEIGHBOR = "TQ1acB6EzwLVWsmE7fn4g8mq3kjGzxbEeN"
+
+
+def _tron_transfer(txid, from_addr, to_addr, timestamp_ms=1_700_000_000_000, amount=10.0):
+    return {"txid": txid, "from": from_addr, "to": to_addr, "amount": amount, "symbol": "USDT", "block_timestamp": timestamp_ms}
+
+
+@patch("graph._key_for_chain", return_value="")
+@patch("graph.tron.fetch_recent_usdt_transfers")
+def test_tron_depth_one_finds_direct_neighbors(fetch, _key):
+    fetch.return_value = [_tron_transfer("t1", TRON_SEED, TRON_NEIGHBOR)]
+
+    result = expand_neighbors(TRON_SEED, depth=1)
+
+    assert result["valid"] is True
+    assert set(result["nodes"]) == {TRON_SEED, TRON_NEIGHBOR}
+    assert result["nodes"][TRON_NEIGHBOR]["depth"] == 1
+    edge = result["edges"][0]
+    assert edge == {
+        "txid": "t1",
+        "from": TRON_SEED,
+        "to": TRON_NEIGHBOR,
+        "value": 10.0,
+        "symbol": "USDT",
+        "block_time": 1_700_000_000,
+    }
+    fetch.assert_called_once_with(TRON_SEED, "")
+
+
+@patch("graph._key_for_chain", return_value="")
+@patch("graph.tron.fetch_recent_usdt_transfers")
+def test_tron_excludes_self_transfer_edges(fetch, _key):
+    fetch.return_value = [_tron_transfer("t1", TRON_SEED, TRON_SEED)]
+
+    result = expand_neighbors(TRON_SEED, depth=1)
+
+    assert result["edges"] == []
+    assert set(result["nodes"]) == {TRON_SEED}
+
+
+@patch("graph._key_for_chain", return_value="")
+@patch("graph.tron.fetch_recent_usdt_transfers", side_effect=ConnectionError("timeout"))
+def test_tron_fetch_failure_is_recorded_not_fatal(fetch, _key):
+    result = expand_neighbors(TRON_SEED, depth=1)
+
+    assert TRON_SEED in result["fetch_errors"]
+    assert result["nodes"] == {TRON_SEED: {"depth": 0}}
+
+
+# --- EVM ---
+
+EVM_SEED = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+EVM_NEIGHBOR = "0x" + "1" * 40
+
+
+def _evm_transfer(txid, from_addr, to_addr, timestamp_s=1_700_000_000, amount=5.0):
+    return {"txid": txid, "from": from_addr, "to": to_addr, "amount": amount, "symbol": "USDC", "timestamp": timestamp_s}
+
+
+@patch("graph._key_for_chain", return_value="my-etherscan-key")
+@patch("graph.evm.fetch_recent_token_transfers")
+def test_evm_depth_one_finds_direct_neighbors(fetch, _key):
+    fetch.return_value = [_evm_transfer("0xa", EVM_SEED, EVM_NEIGHBOR)]
+
+    result = expand_neighbors(EVM_SEED, depth=1)
+
+    assert result["valid"] is True
+    assert set(result["nodes"]) == {EVM_SEED, EVM_NEIGHBOR}
+    edge = result["edges"][0]
+    assert edge == {
+        "txid": "0xa",
+        "from": EVM_SEED,
+        "to": EVM_NEIGHBOR,
+        "value": 5.0,
+        "symbol": "USDC",
+        "block_time": 1_700_000_000,
+    }
+    fetch.assert_called_once_with(EVM_SEED, "my-etherscan-key")
+
+
+@patch("graph._key_for_chain", return_value="my-etherscan-key")
+@patch("graph.evm.fetch_recent_token_transfers", side_effect=RuntimeError("token transfer lookup failed: NOTOK"))
+def test_evm_fetch_failure_is_recorded_not_fatal(fetch, _key):
+    result = expand_neighbors(EVM_SEED, depth=1)
+
+    assert EVM_SEED in result["fetch_errors"]
+    assert "NOTOK" in result["fetch_errors"][EVM_SEED]

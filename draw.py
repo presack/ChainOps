@@ -41,6 +41,18 @@ def _node_color(depth: int) -> tuple[str, str]:
     return _DEPTH_COLORS[min(depth, len(_DEPTH_COLORS) - 1)]
 
 
+def _edge_label(edge: dict[str, Any]) -> str:
+    """BTC edges carry value_sats; Tron/EVM token-transfer edges carry
+    value (already decimal) + symbol -- see graph.py's edge shapes."""
+    if "value_sats" in edge:
+        return f"{edge.get('value_sats', 0) / 1e8:.8f} BTC"
+    value = edge.get("value")
+    symbol = edge.get("symbol") or ""
+    if value is None:
+        return symbol
+    return f"{value:.6f} {symbol}".strip()
+
+
 def _ring_position(depth: int, index: int, count: int) -> tuple[float, float]:
     if depth == 0:
         return 0.0, 0.0
@@ -119,13 +131,12 @@ def build_drawio_xml(
         target_id = node_ids.get(edge.get("to"))
         if source_id is None or target_id is None:
             continue
-        value_btc = edge.get("value_sats", 0) / 1e8
         edge_cell = ET.SubElement(
             root_container,
             "mxCell",
             {
                 "id": f"e{edge_count}",
-                "value": f"{value_btc:.8f} BTC",
+                "value": _edge_label(edge),
                 "style": "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;",
                 "edge": "1",
                 "parent": "1",
