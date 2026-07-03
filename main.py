@@ -12,17 +12,26 @@ from formatter import color_enabled, colorize_report, format_cli_report
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ChainOps - blockchain address/tx recon utility")
+    parser.add_argument("--version", action="version", version=f"ChainOps {__version__}")
     parser.add_argument("target", nargs="?", help="BTC/ETH/Tron address, txid, block height, or ENS name")
-    parser.add_argument("--json", action="store_true", help="Output raw JSON instead of a formatted report")
-    parser.add_argument("--console", action="store_true", help="Start the interactive console (REPL)")
-    parser.add_argument("--version", action="store_true", help="Print the version and exit")
-    parser.add_argument("--update", action="store_true", help="Check for and install an update (built binaries only)")
-    parser.add_argument("--configure-keys", action="store_true", help="Interactive API key setup wizard")
-    parser.add_argument("--providers", action="store_true", help="Show provider key status (configured/missing)")
-    parser.add_argument("--no-color", action="store_true", help="Disable colored output")
-    parser.add_argument("--web", action="store_true", help="Start the web UI")
-    parser.add_argument("--host", default="127.0.0.1", help="Web UI host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=5000, help="Web UI port (default: 5000)")
+
+    exec_grp = parser.add_argument_group("execution mode")
+    exec_grp.add_argument("--console", action="store_true", help="Start the interactive console (REPL)")
+    exec_grp.add_argument("--web", action="store_true", help="Start the web UI")
+    exec_grp.add_argument("--update", action="store_true", help="Check for and install an update (built binaries only)")
+
+    query_grp = parser.add_argument_group("query options")
+    query_grp.add_argument("--json", action="store_true", help="Output raw JSON instead of a formatted report")
+    query_grp.add_argument("--no-color", action="store_true", help="Disable colored output")
+
+    keys_grp = parser.add_argument_group("key management")
+    keys_grp.add_argument("--configure-keys", action="store_true", help="Interactive API key setup wizard")
+    keys_grp.add_argument("--providers", action="store_true", help="Show provider key status (configured/missing)")
+
+    web_grp = parser.add_argument_group("web server")
+    web_grp.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    web_grp.add_argument("--port", type=int, default=5000, help="Bind port (default: 5000)")
+
     return parser.parse_args()
 
 
@@ -56,10 +65,6 @@ def main() -> int:
     load_into_environ()
     cleanup_old_binary()
     check_for_update_background()
-
-    if args.version:
-        print(f"ChainOps {__version__}")
-        return 0
 
     if args.update:
         from updater import do_update

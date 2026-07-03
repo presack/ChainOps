@@ -10,6 +10,8 @@ shell around it.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,47 +24,45 @@ from runner import run_with_activity
 
 _GRAPH_DISPLAY_LIMIT = 25
 
-HELP_TEXT = """
-  Query
-    <target>              run a lookup (BTC, Tron, or ETH address, or an .eth ENS name)
-    expand [address]      expand neighbors from address (default: current seed) at the current depth
-    depth <n>             set hop depth for subsequent expand commands (default: 1)
+def render_help(use_color: bool) -> str:
+    def _h(text: str) -> str:
+        return _c(use_color, text, "1;96")
 
-    Example targets:
-      1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a              BTC -- Silk Road-linked address (Forbes, 2013; public)
-      TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t              Tron -- USDT (TRC20) contract address
-      0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045      ETH -- vitalik.eth's address
-      vitalik.eth                                     ENS name (resolves to the address above)
-
-  Session
-    graph                 show the accumulated session graph (flags [contract]/[!] SCAM-LISTED/[!] SANCTIONED)
-    draw [path]            export the session graph as draw.io XML (default: ~/Downloads/chainops-map-<timestamp>.drawio)
-    status                show seed, depth, graph size, and flagged-node risk rollup
-    reset                 clear the accumulated session graph
-    clear                 clear the terminal
-
-  Bulk triage
-    bulk 1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a, 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
-                                   inline list (comma or space separated; BTC addresses only for now)
-    bulk /path/to/file.csv        read from a CSV (bare list, or a header row with an "address" column)
-    bulk                          paste mode -- type addresses, blank line to submit
-
-  Reports (PDF)
-    report [path]                 PDF case report for the last query (default: ~/Downloads/chainops-<target>-<ts>.pdf)
-    report cluster <id> [path]    PDF cluster report from the last 'bulk' run's triage rows
-
-  Keys & providers
-    providers              show which providers need a key and whether one's configured
-    set-key                 interactive key setup wizard
-    set-key evm <key>       set a key directly (evm = Etherscan/ETH, tron = TronGrid, optional)
-
-  Other
-    banner                redraw the startup banner
-    version                show the current version
-    update                check for and install an update (built binaries only)
-    help                  show this text
-    exit / quit           leave the console
-"""
+    lines = [
+        "",
+        f"  {_h('Query')}",
+        "    <target>                       run a lookup (BTC, Tron, or ETH address, or an .eth ENS name)",
+        "    expand [address]               expand neighbors from address (default: current seed) at the current depth",
+        "    depth <n>                      set hop depth for subsequent expand commands (default: 1)",
+        "",
+        "    Example targets:",
+        "      1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a              BTC -- Silk Road-linked address (Forbes, 2013; public)",
+        "      TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t              Tron -- USDT (TRC20) contract address",
+        "      0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045      ETH -- vitalik.eth's address",
+        "      vitalik.eth                                     ENS name (resolves to the address above)",
+        "",
+        f"  {_h('Bulk triage')}",
+        "    bulk 8.8.8.8, 1.1.1.1          inline list (comma/space separated; BTC only for now)",
+        "    bulk addresses.csv             read from a CSV (bare list, or a header row with an \"address\" column)",
+        "    bulk                           paste mode -- type addresses, blank line to submit",
+        "",
+        f"  {_h('Reports (PDF)')}",
+        "    report [path]                  case report for the last query",
+        "    report cluster <id> [path]     cluster report from the last 'bulk' run",
+        "",
+        f"  {_h('Keys & providers')}",
+        "    providers                      provider key status",
+        "    set-key [provider key]         add or update API key (no args = wizard)",
+        "",
+        f"  {_h('Session')}",
+        "    graph / draw [path]            show / export the accumulated graph",
+        "    status / reset                 session summary (incl. flagged-node risk) / clear graph",
+        "    web [host] [port]              start web server in background",
+        "    clear / version / update       utility commands",
+        "    exit                           quit",
+        "",
+    ]
+    return "\n".join(lines)
 
 _ART_LINES = [
     "  ____ _           _        ___            ",
@@ -121,6 +121,23 @@ def render_providers_status(use_color: bool) -> str:
     planned = _c(use_color, ", ".join(PLANNED_PROVIDERS), "90")
     lines.append(f"Planned (Phase 4, no adapter built yet -- paid/enterprise APIs, no key input available): {planned}")
     return "\n".join(lines)
+
+
+_DEFAULT_WEB_HOST = "127.0.0.1"
+_DEFAULT_WEB_PORT = 5000
+
+
+def run_web_background(host: str, port: int) -> subprocess.Popen:
+    """Launch `chainops --web` as a background subprocess (StealthOps'
+    console.py does the same thing for its own web command) -- the
+    console keeps running while the web server serves in the background,
+    rather than blocking on uvicorn's own event loop."""
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--web", "--host", host, "--port", str(port)]
+    else:
+        main_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py")
+        cmd = [sys.executable, main_py, "--web", "--host", host, "--port", str(port)]
+    return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _default_bulk_csv_path() -> str:
@@ -308,16 +325,34 @@ def run_console() -> int:
 
     session = ConsoleSession()
     use_color = color_enabled(no_color=False)
+    web_process: subprocess.Popen | None = None
     os.system("cls" if os.name == "nt" else "clear")
     print(render_console_banner(use_color))
     print("")
     print("Type 'help' for commands.")
     print("")
 
+    def _shutdown_web() -> None:
+        nonlocal web_process
+        if not web_process:
+            return
+        try:
+            if web_process.poll() is None:
+                web_process.terminate()
+                web_process.wait(timeout=2.0)
+        except Exception:
+            try:
+                if web_process.poll() is None:
+                    web_process.kill()
+            except Exception:
+                pass
+        web_process = None
+
     while True:
         try:
             raw_in = input("chainops> ")
         except EOFError:
+            _shutdown_web()
             print("")
             return 0
         except KeyboardInterrupt:
@@ -335,9 +370,28 @@ def run_console() -> int:
         args = parts[1:]
 
         if cmd in {"exit", "quit"}:
+            _shutdown_web()
             return 0
         if cmd == "help":
-            print(HELP_TEXT)
+            print(render_help(use_color))
+            continue
+        if cmd == "web":
+            host = args[0] if len(args) >= 1 else _DEFAULT_WEB_HOST
+            port_str = args[1] if len(args) >= 2 else str(_DEFAULT_WEB_PORT)
+            if len(args) > 2:
+                print("usage: web [host] [port]")
+                continue
+            try:
+                port = int(port_str)
+            except ValueError:
+                print("usage: web [host] [port]")
+                continue
+            if web_process and web_process.poll() is None:
+                print("web server already running in background")
+                continue
+            web_process = run_web_background(host, port)
+            print(f"Starting web server in background on {host}:{port}")
+            print(f"[web] pid={web_process.pid} url=http://{host}:{port}")
             continue
         if cmd == "clear":
             os.system("cls" if os.name == "nt" else "clear")

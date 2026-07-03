@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from console import ConsoleSession, run_console
 
@@ -280,6 +280,31 @@ def test_run_console_help_and_depth_commands(capsys):
     assert "Query" in out
     assert "depth set to 3" in out
     assert "depth is 3" in out
+
+
+def test_help_does_not_list_banner_command():
+    # banner stays functional (see test_run_console_banner_command_works_though_undocumented
+    # below) but is deliberately left off the help text -- an easter egg,
+    # not a documented feature.
+    from console import render_help
+
+    text = render_help(use_color=False)
+    assert "banner" not in text.lower()
+
+
+def test_help_lists_web_command():
+    from console import render_help
+
+    text = render_help(use_color=False)
+    assert "web [host] [port]" in text
+
+
+@patch("console.render_console_banner", return_value="fake banner")
+def test_run_console_banner_command_works_though_undocumented(mock_banner, capsys):
+    with patch("builtins.input", side_effect=["banner", "exit"]):
+        run_console()
+    out = capsys.readouterr().out
+    assert "fake banner" in out
 
 
 # --- ConsoleSession.handle_bulk_inline / handle_bulk_file ---
@@ -576,3 +601,68 @@ def test_run_console_set_key_single_provider_blank_input_is_no_change(mock_set, 
         run_console()
     mock_set.assert_not_called()
     assert "no change" in capsys.readouterr().out
+
+
+# --- 'web' console command ---
+
+
+@patch("console.run_web_background")
+def test_run_console_web_command_starts_background_server(mock_run_web, capsys):
+    mock_proc = Mock()
+    mock_proc.pid = 4242
+    mock_proc.poll.return_value = None
+    mock_run_web.return_value = mock_proc
+
+    with patch("builtins.input", side_effect=["web", "exit"]):
+        run_console()
+
+    mock_run_web.assert_called_once_with("127.0.0.1", 5000)
+    out = capsys.readouterr().out
+    assert "pid=4242" in out
+    assert "http://127.0.0.1:5000" in out
+
+
+@patch("console.run_web_background")
+def test_run_console_web_command_accepts_host_and_port(mock_run_web, capsys):
+    mock_proc = Mock()
+    mock_proc.pid = 1
+    mock_proc.poll.return_value = None
+    mock_run_web.return_value = mock_proc
+
+    with patch("builtins.input", side_effect=["web 0.0.0.0 8080", "exit"]):
+        run_console()
+
+    mock_run_web.assert_called_once_with("0.0.0.0", 8080)
+
+
+def test_run_console_web_command_rejects_bad_port(capsys):
+    with patch("builtins.input", side_effect=["web 127.0.0.1 notanumber", "exit"]):
+        run_console()
+    assert "usage: web [host] [port]" in capsys.readouterr().out
+
+
+@patch("console.run_web_background")
+def test_run_console_web_command_refuses_double_start(mock_run_web, capsys):
+    mock_proc = Mock()
+    mock_proc.pid = 99
+    mock_proc.poll.return_value = None
+    mock_run_web.return_value = mock_proc
+
+    with patch("builtins.input", side_effect=["web", "web", "exit"]):
+        run_console()
+
+    mock_run_web.assert_called_once()
+    assert "already running" in capsys.readouterr().out
+
+
+@patch("console.run_web_background")
+def test_run_console_shuts_down_web_process_on_exit(mock_run_web, capsys):
+    mock_proc = Mock()
+    mock_proc.pid = 7
+    mock_proc.poll.return_value = None
+    mock_run_web.return_value = mock_proc
+
+    with patch("builtins.input", side_effect=["web", "exit"]):
+        run_console()
+
+    mock_proc.terminate.assert_called_once()

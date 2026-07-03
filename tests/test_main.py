@@ -2,7 +2,9 @@ import json
 import sys
 from unittest.mock import patch
 
-from main import main, run_cli
+import pytest
+
+from main import main, parse_args, run_cli
 
 
 @patch("main.run_all_staged")
@@ -62,3 +64,22 @@ def test_main_dispatches_target_to_run_cli(mock_run, capsys):
         rc = main()
     assert rc == 0
     assert json.loads(capsys.readouterr().out) == {"valid": True, "target": "addr"}
+
+
+def test_version_flag_prints_version_and_exits(capsys):
+    with patch.object(sys, "argv", ["main.py", "--version"]):
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args()
+    assert exc_info.value.code == 0
+    assert "ChainOps" in capsys.readouterr().out
+
+
+def test_help_output_is_grouped(capsys):
+    with patch.object(sys, "argv", ["main.py", "--help"]):
+        with pytest.raises(SystemExit):
+            parse_args()
+    out = capsys.readouterr().out
+    assert "execution mode" in out
+    assert "query options" in out
+    assert "key management" in out
+    assert "web server" in out
