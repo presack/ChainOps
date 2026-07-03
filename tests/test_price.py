@@ -39,6 +39,15 @@ def test_run_surfaces_http_error(get: Mock):
     assert "error" in result
 
 
+@patch("enrichment.providers.price.requests.get")
+def test_run_degrades_gracefully_with_no_network(get: Mock):
+    import requests as requests_module
+
+    get.side_effect = requests_module.exceptions.ConnectionError("no route to host")
+    result = price.run("1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a", "")
+    assert "network error" in result["error"]
+
+
 def test_summary_formats_success():
     assert price.summary({"coin_id": "bitcoin", "usd": 61213}) == "price bitcoin = $61,213"
 

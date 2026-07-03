@@ -59,9 +59,12 @@ def run(target: str, key: str) -> dict[str, Any]:
         )
 
     address = classified.target
-    response = requests.get(
-        _LOOKUP_URL, params={"address": address, "caller": _CALLER}, timeout=ENRICHMENT_TIMEOUT_SECONDS
-    )
+    try:
+        response = requests.get(
+            _LOOKUP_URL, params={"address": address, "caller": _CALLER}, timeout=ENRICHMENT_TIMEOUT_SECONDS
+        )
+    except requests.exceptions.RequestException as exc:
+        return error_result("walletexplorer", f"network error: {exc}")
     if response.status_code >= 400:
         return error_result("walletexplorer", short_http_error(response))
 

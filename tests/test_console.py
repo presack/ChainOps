@@ -19,8 +19,9 @@ def _walk(nodes, edges, truncated=False, fetch_errors=None):
 # --- ConsoleSession.handle_query ---
 
 
+@patch("console.internet_available", return_value=True)
 @patch("console.run_all_staged")
-def test_handle_query_sets_seed_and_formats_report(mock_run):
+def test_handle_query_sets_seed_and_formats_report(mock_run, mock_internet):
     mock_run.return_value = {"target": SEED, "chain": "bitcoin", "target_type": "btc_address_p2pkh", "valid": True}
     session = ConsoleSession()
 
@@ -28,6 +29,26 @@ def test_handle_query_sets_seed_and_formats_report(mock_run):
 
     assert session.seed == SEED
     assert "=== TARGET ===" in report
+
+
+@patch("console.internet_available", return_value=True)
+@patch("console.run_all_staged")
+def test_handle_query_prints_query_start_banner(mock_run, mock_internet):
+    mock_run.return_value = {"target": SEED, "chain": "bitcoin", "target_type": "btc_address_p2pkh", "valid": True}
+    session = ConsoleSession()
+
+    report = session.handle_query(SEED)
+
+    assert "QUERY START" in report
+    assert SEED in report
+
+
+@patch("console.internet_available", return_value=False)
+def test_handle_query_fails_gracefully_without_internet(mock_internet):
+    session = ConsoleSession()
+    report = session.handle_query(SEED)
+    assert "connectivity" in report.lower()
+    assert session.seed is None
 
 
 # --- ConsoleSession.handle_expand ---
@@ -264,13 +285,23 @@ def test_run_console_exits_on_eof():
     assert rc == 0
 
 
+@patch("console.internet_available", return_value=True)
 @patch("console.run_all_staged")
-def test_run_console_dispatches_bare_target_to_query(mock_run, capsys):
+def test_run_console_dispatches_bare_target_to_query(mock_run, mock_internet, capsys):
     mock_run.return_value = {"target": SEED, "chain": "bitcoin", "target_type": "btc_address_p2pkh", "valid": True}
     with patch("builtins.input", side_effect=[SEED, "exit"]):
         run_console()
     out = capsys.readouterr().out
     assert "=== TARGET ===" in out
+
+
+@patch("console.internet_available", return_value=True)
+@patch("console.run_all_staged", side_effect=KeyboardInterrupt)
+def test_run_console_query_interrupted_mid_query_does_not_crash(mock_run, mock_internet, capsys):
+    with patch("builtins.input", side_effect=[SEED, "exit"]):
+        rc = run_console()
+    assert rc == 0
+    assert "interrupted" in capsys.readouterr().out.lower()
 
 
 def test_run_console_help_and_depth_commands(capsys):

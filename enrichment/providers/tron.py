@@ -30,19 +30,23 @@ def run(target: str, key: str) -> dict[str, Any]:
 
     address = classified.target
 
-    account_resp = _get(f"/v1/accounts/{address}", key)
-    if account_resp.status_code >= 400:
-        return error_result("tron", short_http_error(account_resp))
-    account_data = account_resp.json().get("data", [])
-    account = account_data[0] if account_data else {}
-
-    balance_sun = account.get("balance", 0)
-    trc20_balances = {contract: amount for entry in account.get("trc20", []) for contract, amount in entry.items()}
-
     try:
+        account_resp = _get(f"/v1/accounts/{address}", key)
+        if account_resp.status_code >= 400:
+            return error_result("tron", short_http_error(account_resp))
+        account_data = account_resp.json().get("data", [])
+        account = account_data[0] if account_data else {}
+
+        balance_sun = account.get("balance", 0)
+        trc20_balances = {
+            contract: amount for entry in account.get("trc20", []) for contract, amount in entry.items()
+        }
+
         usdt_transfers = fetch_recent_usdt_transfers(address, key)
-    except requests.HTTPError as exc:
+    except requests.exceptions.HTTPError as exc:
         return error_result("tron", short_http_error(exc.response))
+    except requests.exceptions.RequestException as exc:
+        return error_result("tron", f"network error: {exc}")
 
     return {
         "source": "tron",

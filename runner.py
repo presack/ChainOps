@@ -10,9 +10,20 @@ import sys
 import threading
 from typing import Callable, TypeVar
 
-from formatter import interactive_stdio
+from formatter import _c, interactive_stdio
 
 T = TypeVar("T")
+
+
+def render_query_banner(target: str, use_color: bool = False) -> str:
+    """"[ QUERY START ]" divider (StealthOps' console/CLI pattern) -- makes
+    it easy to spot where each query begins when scrolling back through
+    terminal output."""
+    title = f"[ QUERY START ]  target={target}"
+    border = "=" * max(64, len(title) + 6)
+    if not use_color:
+        return f"{border}\n{title}\n{border}"
+    return f"{_c(True, border, '94')}\n{_c(True, title, '30;106')}\n{_c(True, border, '94')}"
 
 
 def run_with_activity(label: str, fn: Callable[[], T]) -> T:

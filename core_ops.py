@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import socket
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -25,6 +26,22 @@ _HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _DIGITS_RE = re.compile(r"^[0-9]+$")
 _ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ENS_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$", re.IGNORECASE)
+
+
+def internet_available(timeout: float = 1.0) -> bool:
+    """Fast, DNS-independent connectivity probe (ported from StealthOps'
+    core_ops.py) -- a raw TCP connect to well-known DNS resolvers' port 53,
+    so it doesn't depend on DNS resolution actually working. Used as a
+    cheap pre-flight check before a query, so "no network" fails with one
+    clear message instead of a burst of per-provider timeouts."""
+    probes = [("1.1.1.1", 53), ("8.8.8.8", 53), ("9.9.9.9", 53)]
+    for host, port in probes:
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 class TargetType:

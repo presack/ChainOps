@@ -74,6 +74,16 @@ def test_run_surfaces_http_error(get: Mock):
 
 
 @patch("enrichment.providers.walletexplorer.requests.get")
+def test_run_degrades_gracefully_with_no_network(get: Mock):
+    import requests as requests_module
+
+    get.side_effect = requests_module.exceptions.ConnectionError("no route to host")
+
+    result = walletexplorer.run(ADDRESS, "")
+    assert "network error" in result["error"]
+
+
+@patch("enrichment.providers.walletexplorer.requests.get")
 def test_wallet_page_fetch_failure_is_non_fatal(get: Mock):
     lookup_resp = _mock_response({"found": True, "wallet_id": "abc123"})
     import requests as requests_module

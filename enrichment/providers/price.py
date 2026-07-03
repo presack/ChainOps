@@ -44,11 +44,14 @@ def run(target: str, key: str) -> dict[str, Any]:
     if coin_id is None:
         return error_result("price", f"no price mapping for chain {classified.chain}", classified.target_type)
 
-    response = requests.get(
-        f"{_API_ROOT}/simple/price",
-        params={"ids": coin_id, "vs_currencies": "usd"},
-        timeout=ENRICHMENT_TIMEOUT_SECONDS,
-    )
+    try:
+        response = requests.get(
+            f"{_API_ROOT}/simple/price",
+            params={"ids": coin_id, "vs_currencies": "usd"},
+            timeout=ENRICHMENT_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as exc:
+        return error_result("price", f"network error: {exc}")
     if response.status_code >= 400:
         return error_result("price", short_http_error(response))
 
@@ -77,11 +80,14 @@ def price_at_timestamp(chain: str, unix_ts: int, key: str = "") -> dict[str, Any
         return error_result("price", f"no price mapping for chain {chain}")
 
     date_str = datetime.fromtimestamp(unix_ts, tz=timezone.utc).strftime("%d-%m-%Y")
-    response = requests.get(
-        f"{_API_ROOT}/coins/{coin_id}/history",
-        params={"date": date_str, "localization": "false"},
-        timeout=ENRICHMENT_TIMEOUT_SECONDS,
-    )
+    try:
+        response = requests.get(
+            f"{_API_ROOT}/coins/{coin_id}/history",
+            params={"date": date_str, "localization": "false"},
+            timeout=ENRICHMENT_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as exc:
+        return error_result("price", f"network error: {exc}")
     if response.status_code >= 400:
         try:
             error_code = response.json().get("error", {}).get("status", {}).get("error_code")

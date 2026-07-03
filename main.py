@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from _version import __version__
-from core_ops import run_all_staged
+from core_ops import internet_available, run_all_staged
 from formatter import color_enabled, colorize_report, format_cli_report
 
 
@@ -40,12 +41,30 @@ def run_web(host: str, port: int) -> int:
 
     from web_ui import build_app
 
-    uvicorn.run(build_app(), host=host, port=port)
+    try:
+        uvicorn.run(build_app(), host=host, port=port)
+    except KeyboardInterrupt:
+        # uvicorn.run() is supposed to catch SIGINT/SIGBREAK itself and shut
+        # down cleanly, but that isn't reliable in every embedding (verified
+        # live on Windows: it can hang or exit with a raw, unhandled
+        # KeyboardInterrupt depending on how the interrupt is delivered) --
+        # this is the last-resort net so `--web` always exits cleanly.
+        print("\n[web] shutting down...")
     return 0
 
 
 def run_cli(target: str, as_json: bool, use_color: bool = False) -> int:
-    from runner import run_with_activity
+    from runner import render_query_banner, run_with_activity
+
+    if not internet_available(timeout=1.0):
+        message = "internet connectivity check failed (no network route detected)"
+        if as_json:
+            print(json.dumps({"error": message}, indent=2))
+        else:
+            print(f"error: {message}")
+        return 1
+
+    print(render_query_banner(target, use_color), file=sys.stderr)
 
     result = run_with_activity("Gathering results", lambda: run_all_staged(target))
     if as_json:
@@ -100,4 +119,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\ninterrupted")
+        raise SystemExit(130)

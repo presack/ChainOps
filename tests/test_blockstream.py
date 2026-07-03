@@ -81,6 +81,15 @@ def test_run_surfaces_http_error(get: Mock):
     assert "503" in result["error"]
 
 
+@patch("enrichment.providers.blockstream.requests.get")
+def test_run_degrades_gracefully_with_no_network(get: Mock):
+    get.side_effect = requests.exceptions.ConnectionError("no route to host")
+
+    result = blockstream.run(ADDRESS, "")
+    assert result["source"] == "blockstream"
+    assert "network error" in result["error"]
+
+
 def test_summary_formats_success():
     payload = {"balance_btc": 0.0003, "tx_count": 2, "utxo_count": 1}
     assert blockstream.summary(payload) == "blockstream balance=0.00030000 BTC tx_count=2 utxos=1"

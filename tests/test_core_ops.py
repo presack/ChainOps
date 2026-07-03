@@ -1,4 +1,6 @@
-from core_ops import Chain, TargetType, classify_target
+from unittest.mock import patch
+
+from core_ops import Chain, TargetType, classify_target, internet_available
 
 
 def test_bech32_p2wpkh():
@@ -88,3 +90,15 @@ def test_strips_whitespace():
     result = classify_target("  870000  ")
     assert result.valid
     assert result.target_type == TargetType.BLOCK_HEIGHT
+
+
+@patch("core_ops.socket.create_connection")
+def test_internet_available_true_when_first_probe_succeeds(mock_connect):
+    assert internet_available() is True
+    mock_connect.assert_called_once()
+
+
+@patch("core_ops.socket.create_connection", side_effect=OSError("network unreachable"))
+def test_internet_available_false_when_all_probes_fail(mock_connect):
+    assert internet_available() is False
+    assert mock_connect.call_count == 3

@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from _version import __version__
-from core_ops import run_all_staged
+from core_ops import internet_available, run_all_staged
 from formatter import _c, color_enabled, colorize_report, format_cli_report
 from graph import DEFAULT_MAX_NEIGHBORS_PER_HOP, expand_neighbors
-from runner import run_with_activity
+from runner import render_query_banner, run_with_activity
 
 _GRAPH_DISPLAY_LIMIT = 25
 
@@ -172,11 +172,15 @@ class ConsoleSession:
             self.truncated = True
 
     def handle_query(self, target: str, use_color: bool = False) -> str:
+        if not internet_available(timeout=1.0):
+            return "error: internet connectivity check failed (no network route detected)"
+
+        banner = render_query_banner(target, use_color)
         result = run_with_activity("Gathering results", lambda: run_all_staged(target))
         self.last_result = result
         if result.get("target"):
             self.seed = result["target"]
-        return colorize_report(format_cli_report(result), use_color)
+        return f"{banner}\n\n{colorize_report(format_cli_report(result), use_color)}"
 
     def handle_expand(self, address: str | None) -> str:
         target = address or self.seed
@@ -348,6 +352,15 @@ def run_console() -> int:
                 pass
         web_process = None
 
+    def _print_or_interrupted(fn) -> None:
+        """Ctrl-C during a running query (network I/O in fn) shouldn't
+        crash the whole console -- print what StealthOps' console prints
+        on the same case, and return to the prompt."""
+        try:
+            print(fn())
+        except KeyboardInterrupt:
+            print("\ninterrupted")
+
     while True:
         try:
             raw_in = input("chainops> ")
@@ -397,7 +410,7 @@ def run_console() -> int:
             os.system("cls" if os.name == "nt" else "clear")
             continue
         if cmd == "expand":
-            print(session.handle_expand(args[0] if args else None))
+            _print_or_interrupted(lambda: session.handle_expand(args[0] if args else None))
             continue
         if cmd == "depth":
             print(session.handle_depth(args[0]) if args else f"depth is {session.depth}")
@@ -426,12 +439,12 @@ def run_console() -> int:
                     if not line.strip():
                         break
                     pasted.extend(part.strip(",") for part in line.replace(",", " ").split() if part.strip(","))
-                print(session.handle_bulk_inline(pasted))
+                _print_or_interrupted(lambda: session.handle_bulk_inline(pasted))
             elif len(args) == 1 and os.path.isfile(args[0]):
-                print(session.handle_bulk_file(args[0]))
+                _print_or_interrupted(lambda: session.handle_bulk_file(args[0]))
             else:
                 addresses = [part.strip(",") for part in raw[len(cmd):].replace(",", " ").split() if part.strip(",")]
-                print(session.handle_bulk_inline(addresses))
+                _print_or_interrupted(lambda: session.handle_bulk_inline(addresses))
             continue
         if cmd == "report":
             if args and args[0].lower() == "cluster":
@@ -496,7 +509,7 @@ def run_console() -> int:
                     os.execv(_sys.executable, _sys.argv)
             continue
 
-        print(session.handle_query(raw, use_color))
+        _print_or_interrupted(lambda: session.handle_query(raw, use_color))
 
 
 if __name__ == "__main__":

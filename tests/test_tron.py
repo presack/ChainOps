@@ -110,6 +110,15 @@ def test_run_surfaces_transfers_http_error(get: Mock):
 
 
 @patch("enrichment.providers.tron.requests.get")
+def test_run_degrades_gracefully_with_no_network(get: Mock):
+    get.side_effect = requests.exceptions.ConnectionError("no route to host")
+
+    result = tron.run(ADDRESS, "")
+    assert result["source"] == "tron"
+    assert "network error" in result["error"]
+
+
+@patch("enrichment.providers.tron.requests.get")
 def test_run_sends_api_key_header(get: Mock):
     get.side_effect = [_mock_response({"data": []}), _mock_response({"data": []})]
 

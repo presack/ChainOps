@@ -33,20 +33,23 @@ def run(target: str, key: str) -> dict[str, Any]:
 
     address = classified.target
 
-    stats_resp = _get(f"/address/{address}")
-    if stats_resp.status_code >= 400:
-        return error_result("blockstream", short_http_error(stats_resp))
-    stats = stats_resp.json()
+    try:
+        stats_resp = _get(f"/address/{address}")
+        if stats_resp.status_code >= 400:
+            return error_result("blockstream", short_http_error(stats_resp))
+        stats = stats_resp.json()
 
-    utxo_resp = _get(f"/address/{address}/utxo")
-    if utxo_resp.status_code >= 400:
-        return error_result("blockstream", short_http_error(utxo_resp))
-    utxos = utxo_resp.json()
+        utxo_resp = _get(f"/address/{address}/utxo")
+        if utxo_resp.status_code >= 400:
+            return error_result("blockstream", short_http_error(utxo_resp))
+        utxos = utxo_resp.json()
 
-    txs_resp = _get(f"/address/{address}/txs")
-    if txs_resp.status_code >= 400:
-        return error_result("blockstream", short_http_error(txs_resp))
-    txs = txs_resp.json()
+        txs_resp = _get(f"/address/{address}/txs")
+        if txs_resp.status_code >= 400:
+            return error_result("blockstream", short_http_error(txs_resp))
+        txs = txs_resp.json()
+    except requests.exceptions.RequestException as exc:
+        return error_result("blockstream", f"network error: {exc}")
 
     chain_stats = stats.get("chain_stats", {})
     mempool_stats = stats.get("mempool_stats", {})
