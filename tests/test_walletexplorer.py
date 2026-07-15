@@ -29,7 +29,7 @@ def test_run_found_without_real_label(get: Mock):
 
 
 @patch("enrichment.providers.walletexplorer.requests.get")
-def test_run_found_with_real_label(get: Mock):
+def test_run_found_with_real_label_from_wallet_page_fallback(get: Mock):
     lookup_resp = _mock_response({"found": True, "wallet_id": "abc123"})
     wallet_page_resp = _mock_response(text='<span class="wallet_name">MtGox.com</span>')
     get.side_effect = [lookup_resp, wallet_page_resp]
@@ -38,6 +38,19 @@ def test_run_found_with_real_label(get: Mock):
 
     assert result["label"] == "MtGox.com"
     assert walletexplorer.summary(result) == "walletexplorer wallet=abc123 label=MtGox.com"
+
+
+@patch("enrichment.providers.walletexplorer.requests.get")
+def test_run_uses_label_from_lookup_response_skips_wallet_page_fetch(get: Mock):
+    get.return_value = _mock_response(
+        {"found": True, "wallet_id": "000030860260d1a1", "label": "LocalBitcoins.com-old"}
+    )
+
+    result = walletexplorer.run(ADDRESS, "")
+
+    assert result["label"] == "LocalBitcoins.com-old"
+    assert get.call_count == 1
+    assert walletexplorer.summary(result) == "walletexplorer wallet=000030860260d1a1 label=LocalBitcoins.com-old"
 
 
 @patch("enrichment.providers.walletexplorer.requests.get")

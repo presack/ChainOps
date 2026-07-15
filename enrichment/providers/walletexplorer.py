@@ -1,12 +1,13 @@
 """WalletExplorer.com adapter — free common-input-ownership wallet clustering
 and (when available) a human label for the cluster.
 
-Verified live 2026-07-02: the JSON lookup API returns found/wallet_id but
-no label field. Labels only exist for wallet_id if the wallet page's
-wallet_name element has been set to something other than the default
-"[<10-hex-char prefix>]" placeholder -- most clusters never get one.
-Matches the roadmap's own caveat: coverage is stale/pre-2018-biased, but
-free and worth surfacing when present.
+Verified live 2026-07-15: the JSON lookup API does include a "label" field
+for well-known/tagged wallets (e.g. exchange/service clusters) -- the
+2026-07-02 note claiming it never does was wrong, just untested against a
+labeled address. Most clusters still have no real label at all, so this
+falls back to scraping the wallet page's wallet_name element (checking for
+the default "[<10-hex-char prefix>]" placeholder) only when the lookup
+response itself doesn't already carry one.
 """
 
 from __future__ import annotations
@@ -76,7 +77,7 @@ def run(target: str, key: str) -> dict[str, Any]:
 
     wallet_id = data.get("wallet_id")
     result["wallet_id"] = wallet_id
-    label = _fetch_wallet_label(wallet_id) if wallet_id else None
+    label = data.get("label") or (_fetch_wallet_label(wallet_id) if wallet_id else None)
     if label:
         result["label"] = label
     return result
