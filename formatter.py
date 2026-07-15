@@ -253,6 +253,17 @@ def format_cli_report(result: dict[str, Any]) -> str:
             lines.append(f"Wallet ID: {walletexplorer.get('wallet_id', '-')}")
             if walletexplorer.get("label"):
                 lines.append(f"Label: {walletexplorer['label']}")
+            known_counterparties = walletexplorer.get("known_counterparties") or []
+            if known_counterparties:
+                lines.append("Known counterparty interactions (from WalletExplorer tx history):")
+                for entry in known_counterparties[:15]:
+                    date_range = (
+                        entry["first_seen"] if entry["first_seen"] == entry["last_seen"]
+                        else f"{entry['first_seen']} to {entry['last_seen']}"
+                    )
+                    lines.append(f"  - {entry['label']}: {entry['count']}x ({date_range})")
+                if len(known_counterparties) > 15:
+                    lines.append(f"  ... and {len(known_counterparties) - 15} more")
 
     ofac = result.get("ofac_sdn", {})
     lines.append("")
