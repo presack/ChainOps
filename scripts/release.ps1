@@ -39,7 +39,8 @@ $LinuxUpload  = Join-Path $ProjectRoot "dist\chainops-linux-x64"
 $ChecksumFile = Join-Path $ProjectRoot "dist\checksums.txt"
 
 # Locate gh CLI (check PATH, then common install locations)
-$GhExe = (Get-Command gh -ErrorAction SilentlyContinue)?.Source
+$GhCmd = Get-Command gh -ErrorAction SilentlyContinue
+$GhExe = if ($GhCmd) { $GhCmd.Source } else { $null }
 if (-not $GhExe) {
     foreach ($candidate in @(
         "C:\Program Files\GitHub CLI\gh.exe",
